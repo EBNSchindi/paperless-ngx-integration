@@ -1,0 +1,44 @@
+{
+  "timestamp": "2025-08-11T11:24:45.991133",
+  "dry_run": true,
+  "accounts": {
+    "Gmail Account 1": {
+      "account": "Gmail Account 1",
+      "since_date": "2025-08-04T11:24:49.112853",
+      "dry_run": true,
+      "emails_processed": 0,
+      "attachments_downloaded": 0,
+      "errors": [],
+      "attachments": [],
+      "total_processed_all_time": 48,
+      "total_attachments_all_time": 1
+    },
+    "Gmail Account 2": {
+      "account": "Gmail Account 2",
+      "since_date": "2025-08-04T11:24:50.252546",
+      "dry_run": true,
+      "emails_processed": 0,
+      "attachments_downloaded": 0,
+      "errors": [],
+      "attachments": [],
+      "total_processed_all_time": 91,
+      "total_attachments_all_time": 0
+    },
+    "IONOS Account": {
+      "account": "IONOS Account",
+      "since_date": "2025-08-04T11:24:51.849110",
+      "dry_run": true,
+      "emails_processed": 0,
+      "attachments_downloaded": 0,
+      "errors": [],
+      "attachments": [],
+      "total_processed_all_time": 6,
+      "total_attachments_all_time": 0
+    }
+  },
+  "connection_test": {
+    "Gmail Account 1": true,
+    "Gmail Account 2": true,
+    "IONOS Account": true
+  }
+}

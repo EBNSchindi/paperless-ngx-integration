@@ -1,0 +1,114 @@
+# Environment and Configuration
+.env
+.env.local
+.env.*.local
+*.env
+config/secrets.yaml
+config/local_settings.py
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+.env/
+
+# IDE and Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Logging
+logs/
+*.log
+log_*.txt
+
+# Email Processing State
+email_state/
+processed_emails.json
+email_cache/
+
+# Paperless NGX Data
+documents/
+media/
+exports/
+
+# Temporary Files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# API Keys and Credentials (extra protection)
+*api_key*
+*secret*
+*password*
+*token*
+credentials.*
+auth.*
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Operating System
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# LLM and AI
+model_cache/
+embeddings/
+ollama_data/
+
+# Application Specific
+processed_attachments/
+failed_processing/
+backup/

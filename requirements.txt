@@ -1,0 +1,28 @@
+# Core Dependencies
+requests>=2.31.0
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# E-Mail Processing
+imapclient>=3.0.0
+email-validator>=2.0.0
+
+# AI/LLM Integration
+openai>=1.0.0
+litellm>=1.0.0
+
+# Utilities
+python-dateutil>=2.8.0
+typing-extensions>=4.5.0
+
+# Development Dependencies (optional)
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+flake8>=6.0.0
+
+# Optional Features
+watchdog>=3.0.0  # File monitoring
+rich>=13.0.0     # Better console output
+structlog>=24.0.0  # Structured logging
