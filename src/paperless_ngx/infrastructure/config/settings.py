@@ -16,6 +16,7 @@ from pydantic import (
     field_validator,
     model_validator,
     ValidationError,
+    field_serializer,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -81,12 +82,17 @@ class Settings(BaseSettings):
         description="Use LiteLLM for unified LLM interface"
     )
     
-    # LLM Provider Order Configuration
-    llm_provider_order: List[str] = Field(
-        default=["openai", "ollama", "anthropic"],
-        description="Order in which to try LLM providers",
-        min_items=1
+    # LLM Provider Order Configuration (stored as string, parsed to list)
+    llm_provider_order_str: str = Field(
+        default="openai,ollama,anthropic",
+        description="Order in which to try LLM providers (comma-separated)",
+        alias="LLM_PROVIDER_ORDER"
     )
+    
+    @property
+    def llm_provider_order(self) -> List[str]:
+        """Get provider order as list."""
+        return [p.strip() for p in self.llm_provider_order_str.split(",") if p.strip()]
     
     # Ollama Configuration
     ollama_enabled: bool = Field(
@@ -293,6 +299,14 @@ class Settings(BaseSettings):
         ge=0,
         description="Alert threshold for LLM costs in EUR"
     )
+    
+    @field_validator("llm_provider_order", mode="before")
+    @classmethod
+    def parse_provider_order(cls, v: Any) -> List[str]:
+        """Parse comma-separated provider order string."""
+        if isinstance(v, str):
+            return [p.strip() for p in v.split(",") if p.strip()]
+        return v
     
     @field_validator("paperless_base_url", "ollama_base_url")
     @classmethod

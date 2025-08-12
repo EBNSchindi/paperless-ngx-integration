@@ -12,17 +12,33 @@ email-validator>=2.0.0
 openai>=1.0.0
 litellm>=1.0.0
 
+# Logging
+python-json-logger>=2.0.0
+structlog>=24.0.0
+
+# CLI and UI
+rich>=13.0.0
+click>=8.0.0
+
+# Text Processing
+rapidfuzz>=3.0.0
+
 # Utilities
 python-dateutil>=2.8.0
 typing-extensions>=4.5.0
+pathlib>=1.0.0
+
+# HTTP Client enhancements
+urllib3>=1.26.0
+tenacity>=8.0.0
 
 # Development Dependencies (optional)
 pytest>=7.0.0
 pytest-asyncio>=0.21.0
+pytest-cov>=4.0.0
 black>=23.0.0
 flake8>=6.0.0
+mypy>=1.0.0
 
 # Optional Features
 watchdog>=3.0.0  # File monitoring
-rich>=13.0.0     # Better console output
-structlog>=24.0.0  # Structured logging
