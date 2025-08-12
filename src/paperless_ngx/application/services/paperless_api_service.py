@@ -235,9 +235,9 @@ class PaperlessApiService:
             tag_ids = [self.get_or_create_tag(tag) for tag in tags]
             update_data['tags'] = tag_ids
         
-        if description and custom_fields is None:
-            # Assuming field ID 1 is for description (as per CLAUDE.md)
-            custom_fields = [{'field': 1, 'value': description[:128]}]
+        if description:
+            # Use native notes field instead of custom field
+            update_data['notes'] = description
         
         if custom_fields:
             update_data['custom_fields'] = custom_fields

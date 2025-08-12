@@ -430,7 +430,12 @@ class SimplifiedWorkflowCLI:
                     
                     # Update in Paperless
                     if source == "paperless":
-                        await self.paperless_client.update_document(doc['id'], metadata)
+                        # Map description to notes for Paperless API
+                        update_data = metadata.copy()
+                        if 'description' in update_data:
+                            update_data['notes'] = update_data.pop('description')
+                        
+                        await self.paperless_client.update_document(doc['id'], update_data)
                     
                     processed += 1
                     progress.advance(task)

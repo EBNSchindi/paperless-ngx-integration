@@ -334,6 +334,7 @@ class PaperlessApiClient:
         correspondent_id: Optional[int] = None,
         document_type_id: Optional[int] = None,
         tag_ids: Optional[List[int]] = None,
+        notes: Optional[str] = None,
         custom_fields: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Upload a new document.
@@ -344,6 +345,7 @@ class PaperlessApiClient:
             correspondent_id: Correspondent ID
             document_type_id: Document type ID
             tag_ids: List of tag IDs
+            notes: Document notes/summary
             custom_fields: List of custom field values
             
         Returns:
@@ -361,6 +363,8 @@ class PaperlessApiClient:
                 data['document_type'] = document_type_id
             if tag_ids:
                 data['tags'] = ','.join(map(str, tag_ids))
+            if notes:
+                data['notes'] = notes
             if custom_fields:
                 data['custom_fields'] = custom_fields
             
