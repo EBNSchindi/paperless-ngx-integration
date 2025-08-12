@@ -1,7 +1,8 @@
 """Filename sanitization utilities for German document processing.
 
 This module provides functions to clean and sanitize filenames, handling
-German umlauts and special characters appropriately.
+German umlauts and special characters appropriately. Uses pathlib exclusively
+for cross-platform compatibility.
 """
 
 from __future__ import annotations
@@ -101,11 +102,11 @@ def sanitize_filename(
     if not filename:
         return "unnamed_file"
     
-    # Split filename and extension
-    if preserve_extension and "." in filename:
-        name_parts = filename.rsplit(".", 1)
-        base_name = name_parts[0]
-        extension = "." + name_parts[1].lower()
+    # Use pathlib for extension handling
+    file_path = Path(filename)
+    if preserve_extension and file_path.suffix:
+        base_name = file_path.stem
+        extension = file_path.suffix.lower()
     else:
         base_name = filename
         extension = ""
@@ -173,23 +174,21 @@ def create_unique_filename(
     base_path = Path(base_path)
     base_path.mkdir(parents=True, exist_ok=True)
     
-    # Check if original filename is available
-    if not (base_path / filename).exists():
+    # Use pathlib for existence check
+    target_file = base_path / filename
+    if not target_file.exists():
         return filename
     
-    # Split filename and extension
-    if "." in filename:
-        name_parts = filename.rsplit(".", 1)
-        base_name = name_parts[0]
-        extension = "." + name_parts[1]
-    else:
-        base_name = filename
-        extension = ""
+    # Use pathlib's stem and suffix for splitting
+    file_path = Path(filename)
+    base_name = file_path.stem
+    extension = file_path.suffix
     
     # Try adding counter
     for counter in range(1, max_attempts + 1):
         new_filename = f"{base_name}_{counter}{extension}"
-        if not (base_path / new_filename).exists():
+        new_path = base_path / new_filename
+        if not new_path.exists():
             return new_filename
     
     raise ValueError(
@@ -237,10 +236,9 @@ def format_email_attachment_filename(
     # Clean original filename
     original_clean = sanitize_filename(original_filename, preserve_extension=False)
     
-    # Get extension from original filename
-    extension = ""
-    if "." in original_filename:
-        extension = "." + original_filename.rsplit(".", 1)[1].lower()
+    # Use pathlib for extension handling
+    original_path = Path(original_filename)
+    extension = original_path.suffix.lower() if original_path.suffix else ""
     
     # Combine parts
     combined = f"{sender_clean}_{subject_clean}_{original_clean}"
@@ -310,10 +308,9 @@ def split_filename_parts(filename: str) -> Tuple[str, str]:
     Returns:
         Tuple of (base_name, extension)
     """
-    if "." in filename:
-        parts = filename.rsplit(".", 1)
-        return parts[0], "." + parts[1]
-    return filename, ""
+    # Use pathlib for reliable splitting
+    file_path = Path(filename)
+    return file_path.stem, file_path.suffix
 
 
 def normalize_path_separators(path: str) -> str:
@@ -325,8 +322,10 @@ def normalize_path_separators(path: str) -> str:
     Returns:
         Path with normalized separators
     """
-    # Convert to Path object and back to string
-    return str(Path(path))
+    # Use pathlib's as_posix() for consistent forward slashes
+    # or native str() for OS-appropriate separators
+    normalized = Path(path)
+    return str(normalized)
 
 
 def validate_filename(filename: str) -> Tuple[bool, Optional[str]]:

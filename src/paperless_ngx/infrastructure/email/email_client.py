@@ -1,7 +1,8 @@
 """Multi-provider email client with IMAP support.
 
 This module provides a unified interface for downloading attachments from
-multiple email accounts including Gmail and IONOS via IMAP.
+multiple email accounts including Gmail and IONOS via IMAP. Uses UTF-8 encoding
+and platform-aware temporary file handling for cross-platform compatibility.
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ import logging
 import re
 import ssl
 import time
+import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from email.header import decode_header
@@ -24,6 +27,7 @@ from ...domain.utilities.filename_utils import (
     create_unique_filename,
     sanitize_filename,
 )
+from ..platform import get_platform_service
 from .email_config import EmailAccount, EmailSettings
 
 logger = logging.getLogger(__name__)
@@ -43,7 +47,7 @@ class EmailAttachment:
     email_date: datetime
     
     def save_to_disk(self, directory: Path, use_custom_name: bool = True) -> Path:
-        """Save attachment to disk.
+        """Save attachment to disk with platform-aware handling.
         
         Args:
             directory: Directory to save attachment
@@ -52,6 +56,8 @@ class EmailAttachment:
         Returns:
             Path to saved file
         """
+        platform = get_platform_service()
+        directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         
         if use_custom_name:
@@ -63,13 +69,35 @@ class EmailAttachment:
         else:
             filename = sanitize_filename(self.filename)
         
+        # Platform-specific filename sanitization
+        filename = platform.sanitize_filename(filename)
+        
         # Ensure unique filename
         filename = create_unique_filename(directory, filename)
         filepath = directory / filename
         
-        # Write content
-        filepath.write_bytes(self.content)
-        logger.info(f"Saved attachment: {filepath} ({self.size} bytes)")
+        # Write content using temporary file for safety
+        try:
+            # Create temporary file in same directory for atomic write
+            with tempfile.NamedTemporaryFile(
+                mode='wb',
+                dir=directory,
+                delete=False,
+                prefix='.tmp_',
+                suffix=Path(filename).suffix
+            ) as tmp_file:
+                tmp_file.write(self.content)
+                tmp_path = Path(tmp_file.name)
+            
+            # Atomic rename to final location
+            tmp_path.replace(filepath)
+            logger.info(f"Saved attachment: {filepath} ({self.size} bytes)")
+            
+        except Exception as e:
+            # Clean up temporary file on error
+            if 'tmp_path' in locals() and tmp_path.exists():
+                tmp_path.unlink()
+            raise
         
         return filepath
 
@@ -299,10 +327,12 @@ class IMAPEmailClient:
                 if encoding:
                     try:
                         decoded_parts.append(part.decode(encoding))
-                    except:
-                        decoded_parts.append(part.decode("utf-8", errors="ignore"))
+                    except Exception:
+                        # Fallback to UTF-8 with replacement characters
+                        decoded_parts.append(part.decode("utf-8", errors="replace"))
                 else:
-                    decoded_parts.append(part.decode("utf-8", errors="ignore"))
+                    # No encoding specified, assume UTF-8
+                    decoded_parts.append(part.decode("utf-8", errors="replace"))
             else:
                 decoded_parts.append(str(part))
         
@@ -330,15 +360,19 @@ class IMAPEmailClient:
                 
                 if content_type == "text/plain":
                     try:
-                        body_parts.append(part.get_payload(decode=True).decode("utf-8", errors="ignore"))
-                    except:
-                        pass
+                        payload = part.get_payload(decode=True)
+                        if payload:
+                            body_parts.append(payload.decode("utf-8", errors="replace"))
+                    except Exception as e:
+                        logger.debug(f"Failed to decode text/plain part: {e}")
         else:
             # Single part message
             try:
-                body_parts.append(msg.get_payload(decode=True).decode("utf-8", errors="ignore"))
-            except:
-                pass
+                payload = msg.get_payload(decode=True)
+                if payload:
+                    body_parts.append(payload.decode("utf-8", errors="replace"))
+            except Exception as e:
+                logger.debug(f"Failed to decode message payload: {e}")
         
         return "\n".join(body_parts)
     
@@ -384,10 +418,11 @@ class IMAPEmailClient:
                 logger.debug(f"Skipping attachment {filename} - extension not allowed")
                 continue
             
-            # Get content
+            # Get content with proper error handling
             try:
                 content = part.get_payload(decode=True)
                 if not content:
+                    logger.debug(f"Empty content for attachment {filename}")
                     continue
                 
                 # Check size
@@ -554,9 +589,9 @@ class IMAPEmailClient:
             
             folder_list = []
             for folder_data in folders:
-                # Parse folder name from response
+                # Parse folder name from response with proper encoding
                 if isinstance(folder_data, bytes):
-                    folder_str = folder_data.decode("utf-8", errors="ignore")
+                    folder_str = folder_data.decode("utf-8", errors="replace")
                 else:
                     folder_str = str(folder_data)
                 

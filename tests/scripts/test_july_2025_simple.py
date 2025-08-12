@@ -2,11 +2,14 @@
 """Simple test runner for July 2025 workflows without external dependencies.
 
 This script tests the July 2025 workflow requirements without needing
-the full application to be installed.
+the full application to be installed. Uses platform-aware file operations
+for cross-platform compatibility.
 """
 
 import json
 import csv
+import tempfile
+import platform
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Tuple
@@ -71,16 +74,21 @@ class July2025SimpleTests:
         )
         tests.append(("date_range", date_test))
         
-        # Test 3: Staging directory structure
-        staging_path = Path("staging/2025-07")
-        staging_path.mkdir(parents=True, exist_ok=True)
-        
-        self.print_test(
-            "Staging directory",
-            staging_path.exists(),
-            f"Created: {staging_path.absolute()}"
-        )
-        tests.append(("staging_dir", staging_path.exists()))
+        # Test 3: Staging directory structure (platform-aware)
+        # Use temporary directory for cross-platform compatibility
+        with tempfile.TemporaryDirectory(prefix="staging_") as temp_dir:
+            staging_path = Path(temp_dir) / "2025-07"
+            staging_path.mkdir(parents=True, exist_ok=True)
+            
+            self.print_test(
+                "Staging directory",
+                staging_path.exists(),
+                f"Created: {staging_path.absolute()}"
+            )
+            tests.append(("staging_dir", staging_path.exists()))
+            
+            # Store for later use in this test
+            self.staging_path = staging_path
         
         # Test 4: PDF filtering configuration
         allowed_extensions = ['.pdf', '.png', '.jpg', '.jpeg']
@@ -104,25 +112,27 @@ class July2025SimpleTests:
         )
         tests.append(("month_org", month_test))
         
-        # Create sample files
-        sample_files = [
-            "telekom_rechnung_juli_2025.pdf",
-            "stadtwerke_abrechnung.pdf",
-            "amazon_bestellung.pdf",
-            "ionos_hosting.pdf",
-            "ionos_details.pdf"
-        ]
-        
-        for filename in sample_files:
-            (staging_path / filename).write_text(f"Sample: {filename}")
-        
-        file_test = len(list(staging_path.glob("*.pdf"))) == 5
-        self.print_test(
-            "Sample files created",
-            file_test,
-            f"Created {len(sample_files)} PDF files in staging"
-        )
-        tests.append(("sample_files", file_test))
+            # Create sample files with proper encoding
+            sample_files = [
+                "telekom_rechnung_juli_2025.pdf",
+                "stadtwerke_abrechnung.pdf",
+                "amazon_bestellung.pdf",
+                "ionos_hosting.pdf",
+                "ionos_details.pdf"
+            ]
+            
+            for filename in sample_files:
+                file_path = staging_path / filename
+                # Use explicit UTF-8 encoding for cross-platform compatibility
+                file_path.write_text(f"Sample: {filename}", encoding='utf-8')
+            
+            file_test = len(list(staging_path.glob("*.pdf"))) == 5
+            self.print_test(
+                "Sample files created",
+                file_test,
+                f"Created {len(sample_files)} PDF files in staging"
+            )
+            tests.append(("sample_files", file_test))
         
         return {
             "passed": sum(1 for _, p in tests if p),
@@ -300,25 +310,26 @@ class July2025SimpleTests:
         )
         tests.append(("quality_score", score_test))
         
-        # Test 5: CSV report generation
-        report_dir = Path("reports")
-        report_dir.mkdir(exist_ok=True)
-        report_file = report_dir / "quality_report_2025-07_2025-07.csv"
-        
-        # Create sample CSV report
-        with open(report_file, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(['document_id', 'title', 'issues', 'action_needed'])
-            writer.writerow([2, 'scan_001.pdf', 'poor_title,few_tags', 'Metadaten ergänzen'])
-            writer.writerow([3, '', 'missing_title,missing_tags', 'Metadaten ergänzen'])
-        
-        report_test = report_file.exists()
-        self.print_test(
-            "CSV report generation",
-            report_test,
-            f"Report: {report_file.name}"
-        )
-        tests.append(("csv_report", report_test))
+        # Test 5: CSV report generation (platform-aware)
+        # Use temporary directory for reports
+        with tempfile.TemporaryDirectory(prefix="reports_") as temp_dir:
+            report_dir = Path(temp_dir)
+            report_file = report_dir / "quality_report_2025-07_2025-07.csv"
+            
+            # Create sample CSV report with explicit UTF-8 encoding
+            with open(report_file, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['document_id', 'title', 'issues', 'action_needed'])
+                writer.writerow([2, 'scan_001.pdf', 'poor_title,few_tags', 'Metadaten ergänzen'])
+                writer.writerow([3, '', 'missing_title,missing_tags', 'Metadaten ergänzen'])
+            
+            report_test = report_file.exists()
+            self.print_test(
+                "CSV report generation",
+                report_test,
+                f"Report: {report_file.name}"
+            )
+            tests.append(("csv_report", report_test))
         
         # Test 6: Quality recommendations
         recommendations = [
@@ -347,6 +358,7 @@ class July2025SimpleTests:
         self.print_section("JULY 2025 WORKFLOW TEST SUITE")
         print(f"  Testing Period: 2025-07-01 to 2025-07-31")
         print(f"  Target: Last month (July 2025)")
+        print(f"  Platform: {platform.system()} {platform.release()}")
         print(f"  Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         
         # Run all workflow tests
@@ -394,10 +406,11 @@ class July2025SimpleTests:
             "all_passed": overall_rate == 100
         }
         
-        # Export results
-        results_file = Path("test_results_july_2025.json")
+        # Export results to platform-appropriate location
+        # Use temporary directory or current directory
+        results_file = Path(tempfile.gettempdir()) / "test_results_july_2025.json"
         with open(results_file, 'w', encoding='utf-8') as f:
-            json.dump(self.results, f, indent=2)
+            json.dump(self.results, f, indent=2, ensure_ascii=False)
         
         print(f"\n  📄 Results saved to: {results_file.absolute()}")
         

@@ -1,12 +1,14 @@
 """Enhanced secure configuration using Pydantic Settings v2.
 
 This module provides type-safe configuration management with validation
-and support for multiple environment files.
+and support for multiple environment files. Includes platform-aware path
+validation for cross-platform compatibility.
 """
 
 from __future__ import annotations
 
 import logging
+import platform
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set
 
@@ -19,6 +21,8 @@ from pydantic import (
     field_serializer,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from ..platform import get_platform_service
 
 logger = logging.getLogger(__name__)
 
@@ -317,17 +321,46 @@ class Settings(BaseSettings):
     @field_validator("log_file")
     @classmethod
     def validate_log_file(cls, v: Optional[Path]) -> Optional[Path]:
-        """Ensure log directory exists if log file is specified."""
+        """Ensure log directory exists if log file is specified.
+        
+        Uses platform service for path validation.
+        """
         if v is not None:
             v = Path(v)
+            platform_service = get_platform_service()
+            
+            # Validate path for platform
+            is_valid, error = platform_service.is_valid_path(v)
+            if not is_valid:
+                raise ValueError(f"Invalid log file path: {error}")
+            
+            # Ensure parent directory exists
             v.parent.mkdir(parents=True, exist_ok=True)
         return v
     
     @field_validator("app_data_dir")
     @classmethod
     def validate_app_data_dir(cls, v: Path) -> Path:
-        """Ensure application data directory exists."""
+        """Ensure application data directory exists.
+        
+        Uses platform-appropriate default location if not specified.
+        """
         v = Path(v)
+        platform_service = get_platform_service()
+        
+        # If using default path, get platform-appropriate location
+        if str(v) == str(Path.home() / ".paperless_ngx_integration"):
+            v = platform_service.get_user_data_dir("paperless_ngx_integration")
+        
+        # Validate path for platform
+        is_valid, error = platform_service.is_valid_path(v)
+        if not is_valid:
+            raise ValueError(f"Invalid app data directory: {error}")
+        
+        # Fix long paths on Windows
+        v = platform_service.fix_long_path(v)
+        
+        # Create directory
         v.mkdir(parents=True, exist_ok=True)
         return v
     
@@ -398,11 +431,17 @@ class Settings(BaseSettings):
             env_file: Path to environment file (e.g., '.env.development')
             
         Returns:
-            Configured Settings instance
+            Configured Settings instance with platform-aware defaults
             
         Raises:
             ValidationError: If configuration is invalid
         """
+        # Set platform-specific environment variables if needed
+        import os
+        if platform.system() == "Windows" and not os.environ.get("PYTHONUTF8"):
+            # Recommend UTF-8 mode for Windows
+            logger.info("Windows detected: Consider setting PYTHONUTF8=1 for better compatibility")
+        
         if env_file:
             return cls(_env_file=env_file)
         
@@ -419,6 +458,8 @@ class Settings(BaseSettings):
     def validate_at_startup(self) -> Dict[str, Any]:
         """Perform comprehensive validation at application startup.
         
+        Includes platform-specific checks and recommendations.
+        
         Returns:
             Dictionary with validation results
             
@@ -429,8 +470,27 @@ class Settings(BaseSettings):
             "valid": True,
             "errors": [],
             "warnings": [],
-            "info": []
+            "info": [],
+            "platform": {}
         }
+        
+        # Platform information
+        platform_service = get_platform_service()
+        results["platform"] = {
+            "os": platform_service.name,
+            "is_windows": platform_service.is_windows,
+            "is_posix": platform_service.is_posix,
+            "encoding": platform_service.get_file_encoding(),
+            "case_sensitive_fs": platform_service.is_case_sensitive_filesystem(),
+            "temp_dir": str(platform_service.get_temp_dir())
+        }
+        
+        # Platform-specific recommendations
+        if platform_service.is_windows:
+            results["info"].append("Running on Windows - UTF-8 encoding enforced")
+            results["info"].append("Recommendation: Set PYTHONUTF8=1 environment variable")
+        else:
+            results["info"].append(f"Running on {platform_service.name} - POSIX compliant")
         
         # Check Paperless API token
         if not self.paperless_api_token:
@@ -466,17 +526,24 @@ class Settings(BaseSettings):
                 "Consider using HTTPS for production."
             )
         
-        # Check data directory
+        # Check data directory with platform validation
         if not self.app_data_dir.exists():
             try:
-                self.app_data_dir.mkdir(parents=True, exist_ok=True)
-                results["info"].append(f"Created app data directory: {self.app_data_dir}")
+                # Validate path for platform
+                is_valid, error = platform_service.is_valid_path(self.app_data_dir)
+                if not is_valid:
+                    results["errors"].append(f"Invalid app data directory path: {error}")
+                    results["valid"] = False
+                else:
+                    self.app_data_dir.mkdir(parents=True, exist_ok=True)
+                    results["info"].append(f"Created app data directory: {self.app_data_dir}")
             except Exception as e:
                 results["errors"].append(f"Cannot create app data directory: {e}")
                 results["valid"] = False
         
         # Log validation results
         logger.info(f"Configuration validation: {'PASSED' if results['valid'] else 'FAILED'}")
+        logger.info(f"Platform: {results['platform']['os']} (Case-sensitive FS: {results['platform']['case_sensitive_fs']})")
         for error in results["errors"]:
             logger.error(f"Config error: {error}")
         for warning in results["warnings"]:
