@@ -24,6 +24,11 @@ from rich import print as rprint
 from src.paperless_ngx.domain.value_objects import DateRange, QuickDateOption
 from src.paperless_ngx.application.services.smart_tag_matcher import SmartTagMatcher
 from src.paperless_ngx.application.services.email_fetcher_service import EmailFetcherService
+from src.paperless_ngx.application.services.paperless_api_service import PaperlessApiService
+from src.paperless_ngx.application.services.document_metadata_service import DocumentMetadataService
+from src.paperless_ngx.application.services.quality_analyzer_service import QualityAnalyzerService
+from src.paperless_ngx.application.services.report_generator_service import ReportGeneratorService
+from src.paperless_ngx.application.use_cases.metadata_extraction import MetadataExtractor
 from src.paperless_ngx.infrastructure.config import get_settings
 from src.paperless_ngx.infrastructure.llm.litellm_client import LiteLLMClient
 from src.paperless_ngx.infrastructure.paperless.api_client import PaperlessApiClient
@@ -42,9 +47,15 @@ class SimplifiedWorkflowCLI:
         setup_logging(self.settings.log_level)
         
         # Initialize services
-        self.paperless_client = PaperlessApiClient(self.settings)
-        self.llm_client = LiteLLMClient(self.settings)
-        self.email_fetcher = EmailFetcherService(self.settings)
+        self.paperless_client = PaperlessApiClient()  # Low-level API client
+        self.paperless_service = PaperlessApiService(self.paperless_client)  # High-level service
+        self.document_metadata_service = DocumentMetadataService(
+            api_client=self.paperless_client,
+            api_service=self.paperless_service
+        )  # Document metadata service with ID mapping
+        self.llm_client = LiteLLMClient()  # Uses settings internally
+        self.metadata_extractor = MetadataExtractor()  # For metadata extraction (uses its own LLM client)
+        self.email_fetcher = EmailFetcherService()
         self.tag_matcher = SmartTagMatcher(
             paperless_client=self.paperless_client,
             llm_client=self.llm_client,
@@ -264,19 +275,10 @@ class SimplifiedWorkflowCLI:
     
     async def workflow_2_process_documents(self):
         """Workflow 2: Dokumente verarbeiten & Metadaten anreichern."""
-        console.print("\n[bold yellow]Workflow 2: Dokumente verarbeiten & Metadaten anreichern[/bold yellow]\n")
+        console.print("\n[bold yellow]Workflow 2: Dokumente aus Paperless verarbeiten & Metadaten anreichern[/bold yellow]\n")
         
-        # Select processing source
-        console.print("[bold]Dokumentenquelle wählen:[/bold]")
-        console.print("  1. Staging-Verzeichnis (heruntergeladene Emails)")
-        console.print("  2. Paperless NGX (bereits hochgeladene Dokumente)")
-        
-        source_choice = Prompt.ask("Quelle", choices=["1", "2"], default="1")
-        
-        if source_choice == "1":
-            await self._process_staging_documents()
-        else:
-            await self._process_paperless_documents()
+        # Directly process documents from Paperless
+        await self._process_paperless_documents()
     
     async def _process_staging_documents(self):
         """Process documents from staging directory."""
@@ -334,7 +336,7 @@ class SimplifiedWorkflowCLI:
         console.print("\n[dim]Lade Dokumente aus Paperless...[/dim]")
         
         try:
-            documents = await self.paperless_client.get_documents_in_range(date_range)
+            documents = self.paperless_service.get_documents_in_range(date_range)
             
             if not documents:
                 console.print("[red]Keine Dokumente im gewählten Zeitraum gefunden![/red]")
@@ -357,7 +359,7 @@ class SimplifiedWorkflowCLI:
             source: Source of documents ("staging" or "paperless")
         """
         console.print(f"\n[bold]Verarbeitung von {len(documents)} Dokumenten[/bold]")
-        console.print(f"[dim]LLM Provider: {self.settings.llm_provider}[/dim]")
+        console.print(f"[dim]LLM Provider: {', '.join(self.settings.llm_provider_order)}[/dim]")
         console.print(f"[dim]Tag-Matching Threshold: 95%[/dim]\n")
         
         # Get existing tags for matching
@@ -401,10 +403,9 @@ class SimplifiedWorkflowCLI:
                     
                     # LLM metadata extraction
                     progress.update(task, description=f"LLM-Analyse: {doc_name[:30]}...")
-                    metadata = await self.llm_client.extract_metadata(
+                    metadata = self.metadata_extractor.extract_metadata(
                         ocr_text=ocr_text,
-                        filename=doc_name,
-                        prompt_template="german_business"
+                        document_id=doc.get('id')
                     )
                     
                     # Smart tag matching
@@ -430,12 +431,11 @@ class SimplifiedWorkflowCLI:
                     
                     # Update in Paperless
                     if source == "paperless":
-                        # Map description to notes for Paperless API
-                        update_data = metadata.copy()
-                        if 'description' in update_data:
-                            update_data['notes'] = update_data.pop('description')
-                        
-                        await self.paperless_client.update_document(doc['id'], update_data)
+                        # Use DocumentMetadataService for proper ID mapping
+                        self.document_metadata_service.update_document_with_metadata(
+                            document_id=doc['id'],
+                            metadata=metadata
+                        )
                     
                     processed += 1
                     progress.advance(task)
@@ -482,7 +482,7 @@ class SimplifiedWorkflowCLI:
         console.print("\n[dim]Lade Dokumente für Qualitätsprüfung...[/dim]")
         
         try:
-            documents = await self.paperless_client.get_documents_in_range(date_range)
+            documents = self.paperless_service.get_documents_in_range(date_range)
             
             if not documents:
                 console.print("[red]Keine Dokumente im gewählten Zeitraum gefunden![/red]")

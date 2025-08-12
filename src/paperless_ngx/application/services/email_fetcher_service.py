@@ -440,3 +440,127 @@ class EmailFetcherService:
                 pass
         
         return folders
+    
+    def get_configured_accounts(self) -> List[str]:
+        """Get list of configured email account names.
+        
+        Returns:
+            List of account names
+        """
+        return list(self.clients.keys())
+    
+    async def connect(self, account_name: str) -> bool:
+        """Connect to specific email account.
+        
+        Args:
+            account_name: Name of email account
+            
+        Returns:
+            True if connection successful
+        """
+        if account_name not in self.clients:
+            logger.error(f"Account {account_name} not configured")
+            return False
+        
+        try:
+            client = self.clients[account_name]
+            client.connect()
+            logger.info(f"Connected to {account_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to connect to {account_name}: {e}")
+            return False
+    
+    async def disconnect(self, account_name: str) -> None:
+        """Disconnect from specific email account.
+        
+        Args:
+            account_name: Name of email account
+        """
+        if account_name in self.clients:
+            try:
+                self.clients[account_name].disconnect()
+                logger.info(f"Disconnected from {account_name}")
+            except Exception as e:
+                logger.error(f"Error disconnecting from {account_name}: {e}")
+    
+    async def fetch_emails_in_range(
+        self,
+        account: str,
+        date_range: 'DateRange'
+    ) -> List[Dict[str, Any]]:
+        """Fetch emails within a date range.
+        
+        Args:
+            account: Account name
+            date_range: Date range to fetch emails from
+            
+        Returns:
+            List of email dictionaries with attachments
+        """
+        if account not in self.clients:
+            logger.error(f"Account {account} not configured")
+            return []
+        
+        client = self.clients[account]
+        emails = []
+        
+        try:
+            # Use existing fetch_account method with date
+            attachments = self.fetch_account(
+                account_name=account,
+                since_date=date_range.start_date,
+                dry_run=False
+            )
+            
+            # Convert attachments to email format for compatibility
+            for att in attachments:
+                email_dict = {
+                    'date': att.email_date if hasattr(att, 'email_date') else datetime.now(),
+                    'subject': att.email_subject if hasattr(att, 'email_subject') else 'No Subject',
+                    'sender': att.email_sender if hasattr(att, 'email_sender') else 'Unknown',
+                    'attachments': [{
+                        'filename': att.filename,
+                        'type': Path(att.filename).suffix,
+                        'data': att.content if hasattr(att, 'content') else None
+                    }]
+                }
+                emails.append(email_dict)
+            
+            return emails
+            
+        except Exception as e:
+            logger.error(f"Error fetching emails from {account}: {e}")
+            return []
+    
+    async def download_attachment(self, attachment_data: Any, filepath: Path) -> bool:
+        """Download attachment to specified path.
+        
+        Args:
+            attachment_data: Attachment data
+            filepath: Target file path
+            
+        Returns:
+            True if successful
+        """
+        try:
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+            
+            # If attachment_data is bytes, write directly
+            if isinstance(attachment_data, bytes):
+                with open(filepath, 'wb') as f:
+                    f.write(attachment_data)
+            # If it's a dict with content
+            elif isinstance(attachment_data, dict) and 'content' in attachment_data:
+                with open(filepath, 'wb') as f:
+                    f.write(attachment_data['content'])
+            else:
+                logger.error(f"Unknown attachment data format: {type(attachment_data)}")
+                return False
+            
+            logger.info(f"Downloaded attachment to {filepath}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error downloading attachment: {e}")
+            return False

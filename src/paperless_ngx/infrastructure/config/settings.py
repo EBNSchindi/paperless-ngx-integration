@@ -300,13 +300,13 @@ class Settings(BaseSettings):
         description="Alert threshold for LLM costs in EUR"
     )
     
-    @field_validator("llm_provider_order", mode="before")
+    @field_validator("llm_provider_order_str", mode="before")
     @classmethod
-    def parse_provider_order(cls, v: Any) -> List[str]:
-        """Parse comma-separated provider order string."""
-        if isinstance(v, str):
-            return [p.strip() for p in v.split(",") if p.strip()]
-        return v
+    def parse_provider_order(cls, v: Any) -> str:
+        """Ensure provider order is a string."""
+        if isinstance(v, list):
+            return ",".join(v)
+        return str(v) if v else "openai,ollama,anthropic"
     
     @field_validator("paperless_base_url", "ollama_base_url")
     @classmethod

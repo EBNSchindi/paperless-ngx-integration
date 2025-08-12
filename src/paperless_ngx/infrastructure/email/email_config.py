@@ -145,42 +145,42 @@ class EmailSettings(BaseModel):
         """
         accounts = []
         
-        # Gmail Account 1
+        # Email Account 1
         if self.gmail1_email and self.gmail1_app_password:
             accounts.append(EmailAccount(
-                name="Gmail Account 1",
+                name=os.getenv("EMAIL_ACCOUNT_1_NAME", "Gmail EBN Veranstaltungen"),
                 provider="gmail",
-                imap_server="imap.gmail.com",
-                imap_port=993,
+                imap_server=os.getenv("EMAIL_ACCOUNT_1_SERVER", "imap.gmail.com"),
+                imap_port=int(os.getenv("EMAIL_ACCOUNT_1_PORT", "993")),
                 email=self.gmail1_email.get_secret_value(),
                 password=self.gmail1_app_password.get_secret_value(),
-                folder="INBOX",
+                folder=os.getenv("EMAIL_ACCOUNT_1_FOLDER", "INBOX"),
                 enabled=True
             ))
         
-        # Gmail Account 2
+        # Email Account 2
         if self.gmail2_email and self.gmail2_app_password:
             accounts.append(EmailAccount(
-                name="Gmail Account 2",
+                name=os.getenv("EMAIL_ACCOUNT_2_NAME", "Gmail DS"),
                 provider="gmail",
-                imap_server="imap.gmail.com",
-                imap_port=993,
+                imap_server=os.getenv("EMAIL_ACCOUNT_2_SERVER", "imap.gmail.com"),
+                imap_port=int(os.getenv("EMAIL_ACCOUNT_2_PORT", "993")),
                 email=self.gmail2_email.get_secret_value(),
                 password=self.gmail2_app_password.get_secret_value(),
-                folder="INBOX",
+                folder=os.getenv("EMAIL_ACCOUNT_2_FOLDER", "INBOX"),
                 enabled=True
             ))
         
-        # IONOS Account
+        # Email Account 3 (IONOS)
         if self.ionos_email and self.ionos_password:
             accounts.append(EmailAccount(
-                name="IONOS Account",
+                name=os.getenv("EMAIL_ACCOUNT_3_NAME", "IONOS EBN Veranstaltungen"),
                 provider="ionos",
-                imap_server="imap.ionos.de",
-                imap_port=993,
+                imap_server=os.getenv("EMAIL_ACCOUNT_3_SERVER", "imap.ionos.de"),
+                imap_port=int(os.getenv("EMAIL_ACCOUNT_3_PORT", "993")),
                 email=self.ionos_email.get_secret_value(),
                 password=self.ionos_password.get_secret_value(),
-                folder="INBOX",
+                folder=os.getenv("EMAIL_ACCOUNT_3_FOLDER", "INBOX"),
                 enabled=True
             ))
         
@@ -229,23 +229,23 @@ def load_email_config_from_env() -> EmailSettings:
         "email_processed_db": Path(os.getenv("EMAIL_PROCESSED_DB", "./data/processed_emails.json")),
     }
     
-    # Gmail Account 1
-    if gmail1_email := os.getenv("GMAIL1_EMAIL"):
-        config["gmail1_email"] = SecretStr(gmail1_email)
-    if gmail1_password := os.getenv("GMAIL1_APP_PASSWORD"):
-        config["gmail1_app_password"] = SecretStr(gmail1_password)
+    # Check for EMAIL_ACCOUNT_1 (Gmail Account 1)
+    if email1 := os.getenv("EMAIL_ACCOUNT_1_USERNAME"):
+        config["gmail1_email"] = SecretStr(email1)
+    if password1 := os.getenv("EMAIL_ACCOUNT_1_PASSWORD"):
+        config["gmail1_app_password"] = SecretStr(password1)
     
-    # Gmail Account 2
-    if gmail2_email := os.getenv("GMAIL2_EMAIL"):
-        config["gmail2_email"] = SecretStr(gmail2_email)
-    if gmail2_password := os.getenv("GMAIL2_APP_PASSWORD"):
-        config["gmail2_app_password"] = SecretStr(gmail2_password)
+    # Check for EMAIL_ACCOUNT_2 (Gmail Account 2)
+    if email2 := os.getenv("EMAIL_ACCOUNT_2_USERNAME"):
+        config["gmail2_email"] = SecretStr(email2)
+    if password2 := os.getenv("EMAIL_ACCOUNT_2_PASSWORD"):
+        config["gmail2_app_password"] = SecretStr(password2)
     
-    # IONOS Account
-    if ionos_email := os.getenv("IONOS_EMAIL"):
-        config["ionos_email"] = SecretStr(ionos_email)
-    if ionos_password := os.getenv("IONOS_PASSWORD"):
-        config["ionos_password"] = SecretStr(ionos_password)
+    # Check for EMAIL_ACCOUNT_3 (IONOS Account)
+    if email3 := os.getenv("EMAIL_ACCOUNT_3_USERNAME"):
+        config["ionos_email"] = SecretStr(email3)
+    if password3 := os.getenv("EMAIL_ACCOUNT_3_PASSWORD"):
+        config["ionos_password"] = SecretStr(password3)
     
     # Additional settings
     if mark_as_read := os.getenv("EMAIL_MARK_AS_READ"):
@@ -263,33 +263,33 @@ def load_email_config_from_env() -> EmailSettings:
 # Default configuration for development/testing
 DEFAULT_EMAIL_ACCOUNTS = [
     {
-        "name": "Gmail Account 1",
+        "name": os.getenv("EMAIL_ACCOUNT_1_NAME", "Gmail Account 1"),
         "provider": "gmail",
-        "imap_server": "imap.gmail.com",
-        "imap_port": 993,
-        "email": os.getenv("GMAIL1_EMAIL", ""),
-        "password": os.getenv("GMAIL1_APP_PASSWORD", ""),
-        "folder": "INBOX",
-        "enabled": bool(os.getenv("GMAIL1_EMAIL"))
+        "imap_server": os.getenv("EMAIL_ACCOUNT_1_SERVER", "imap.gmail.com"),
+        "imap_port": int(os.getenv("EMAIL_ACCOUNT_1_PORT", "993")),
+        "email": os.getenv("EMAIL_ACCOUNT_1_USERNAME", ""),
+        "password": os.getenv("EMAIL_ACCOUNT_1_PASSWORD", ""),
+        "folder": os.getenv("EMAIL_ACCOUNT_1_FOLDER", "INBOX"),
+        "enabled": bool(os.getenv("EMAIL_ACCOUNT_1_USERNAME"))
     },
     {
-        "name": "Gmail Account 2",
+        "name": os.getenv("EMAIL_ACCOUNT_2_NAME", "Gmail Account 2"),
         "provider": "gmail",
-        "imap_server": "imap.gmail.com",
-        "imap_port": 993,
-        "email": os.getenv("GMAIL2_EMAIL", ""),
-        "password": os.getenv("GMAIL2_APP_PASSWORD", ""),
-        "folder": "INBOX",
-        "enabled": bool(os.getenv("GMAIL2_EMAIL"))
+        "imap_server": os.getenv("EMAIL_ACCOUNT_2_SERVER", "imap.gmail.com"),
+        "imap_port": int(os.getenv("EMAIL_ACCOUNT_2_PORT", "993")),
+        "email": os.getenv("EMAIL_ACCOUNT_2_USERNAME", ""),
+        "password": os.getenv("EMAIL_ACCOUNT_2_PASSWORD", ""),
+        "folder": os.getenv("EMAIL_ACCOUNT_2_FOLDER", "INBOX"),
+        "enabled": bool(os.getenv("EMAIL_ACCOUNT_2_USERNAME"))
     },
     {
-        "name": "IONOS Account",
+        "name": os.getenv("EMAIL_ACCOUNT_3_NAME", "IONOS Account"),
         "provider": "ionos",
-        "imap_server": "imap.ionos.de",
-        "imap_port": 993,
-        "email": os.getenv("IONOS_EMAIL", ""),
-        "password": os.getenv("IONOS_PASSWORD", ""),
-        "folder": "INBOX",
-        "enabled": bool(os.getenv("IONOS_EMAIL"))
+        "imap_server": os.getenv("EMAIL_ACCOUNT_3_SERVER", "imap.ionos.de"),
+        "imap_port": int(os.getenv("EMAIL_ACCOUNT_3_PORT", "993")),
+        "email": os.getenv("EMAIL_ACCOUNT_3_USERNAME", ""),
+        "password": os.getenv("EMAIL_ACCOUNT_3_PASSWORD", ""),
+        "folder": os.getenv("EMAIL_ACCOUNT_3_FOLDER", "INBOX"),
+        "enabled": bool(os.getenv("EMAIL_ACCOUNT_3_USERNAME"))
     }
 ]

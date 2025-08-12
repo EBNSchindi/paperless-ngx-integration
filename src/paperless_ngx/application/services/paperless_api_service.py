@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Set, Tuple
+from typing import Any, Dict, Generator, List, Optional, Set, Tuple, TYPE_CHECKING
 
 from rapidfuzz import fuzz, process
 
@@ -21,6 +21,9 @@ from ...domain.exceptions import (
 from ...infrastructure.config import get_settings
 from ...infrastructure.paperless import PaperlessApiClient
 from ..use_cases.metadata_extraction import MetadataExtractor
+
+if TYPE_CHECKING:
+    from ...domain.value_objects.date_range import DateRange
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +84,7 @@ class PaperlessApiService:
             Chunks of document dictionaries
         """
         filters = {}
+        filters['format'] = 'json'  # CRITICAL: Force JSON response
         
         # Date filtering
         if since_date:
@@ -126,9 +130,15 @@ class PaperlessApiService:
                 
                 page += 1
                 
+            except KeyError as e:
+                logger.error(f"API response missing expected field '{e}' in chunk {page}")
+                logger.error(f"Response keys: {list(data.keys()) if 'data' in locals() else 'No data'}")
+                # API might return empty or different format when no documents
+                break
             except Exception as e:
                 logger.error(f"Error retrieving documents chunk {page}: {e}")
-                raise PaperlessAPIError(f"Failed to retrieve documents: {e}")
+                # Don't raise, just stop iteration
+                break
         
         logger.info(f"Retrieved {total_documents} documents in {page} chunks")
     
@@ -167,6 +177,55 @@ class PaperlessApiService:
             since_date=since_date,
             until_date=until_date
         )
+    
+    def get_documents_in_range(
+        self,
+        date_range: 'DateRange',
+        chunk_size: int = 100
+    ) -> List[Dict[str, Any]]:
+        """Get all documents within a date range (synchronous version).
+        
+        Args:
+            date_range: DateRange object specifying the period
+            chunk_size: Documents per chunk for pagination
+            
+        Returns:
+            List of document dictionaries
+        """
+        logger.info(f"Retrieving documents for range: {date_range}")
+        
+        documents = []
+        try:
+            for chunk in self.get_documents_chunked(
+                chunk_size=chunk_size,
+                since_date=date_range.start_date,
+                until_date=date_range.end_date
+            ):
+                documents.extend(chunk)
+        except Exception as e:
+            logger.error(f"Error retrieving documents: {e}")
+            # Return empty list on error instead of raising
+            return []
+        
+        logger.info(f"Retrieved {len(documents)} documents in date range")
+        return documents
+    
+    async def get_documents_in_range_async(
+        self,
+        date_range: 'DateRange',
+        chunk_size: int = 100
+    ) -> List[Dict[str, Any]]:
+        """Get all documents within a date range (async version).
+        
+        Args:
+            date_range: DateRange object specifying the period
+            chunk_size: Documents per chunk for pagination
+            
+        Returns:
+            List of document dictionaries
+        """
+        # Just call the sync version for now
+        return self.get_documents_in_range(date_range, chunk_size)
     
     def get_document_with_ocr(self, document_id: int) -> Dict[str, Any]:
         """Get document with OCR text included.

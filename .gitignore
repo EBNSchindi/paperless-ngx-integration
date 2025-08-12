@@ -111,4 +111,4 @@ ollama_data/
 # Application Specific
 processed_attachments/
 failed_processing/
-backup/
+backup/venv_new/

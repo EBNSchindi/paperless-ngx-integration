@@ -1,9 +1,0 @@
-{
-  "timestamp": "2025-08-11T07:56:19.177513",
-  "results": {
-    "paperless": "True",
-    "ollama": "True",
-    "openai": "True",
-    "email": "[True, True, True]"
-  }
-}

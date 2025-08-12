@@ -113,7 +113,9 @@ class SmartTagMatcher:
             return []
         
         try:
-            tags = await self.paperless_client.get_tags()
+            # get_tags is not async, so don't use await
+            tags_response = self.paperless_client.get_tags(page_size=100)
+            tags = tags_response.get('results', [])
             self.existing_tags_cache = [tag['name'] for tag in tags]
             logger.info(f"Loaded {len(self.existing_tags_cache)} existing tags from Paperless")
             return self.existing_tags_cache

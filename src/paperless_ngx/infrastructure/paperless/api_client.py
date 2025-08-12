@@ -2,6 +2,9 @@
 
 This module provides a robust HTTP client for interacting with the Paperless NGX REST API,
 including authentication, retry mechanisms, and efficient connection management.
+
+CRITICAL: This client automatically adds format=json to all API requests to ensure
+JSON responses instead of HTML browsable API responses from Django REST Framework.
 """
 
 from __future__ import annotations
@@ -11,7 +14,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple, Union
-from urllib.parse import urljoin, urlparse, parse_qs
+from urllib.parse import urljoin, urlparse, parse_qs, urlencode
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -37,6 +40,62 @@ from ..config import get_settings
 logger = logging.getLogger(__name__)
 
 
+class ApiRequestBuilder:
+    """Builder class for constructing API requests with proper formatting.
+    
+    This class ensures all API requests include the format=json parameter
+    to prevent Django REST Framework from returning HTML responses.
+    """
+    
+    def __init__(self, base_url: str):
+        """Initialize the request builder.
+        
+        Args:
+            base_url: Base URL for the API
+        """
+        self.base_url = base_url.rstrip('/')
+    
+    def build_url(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Tuple[str, Dict[str, Any]]:
+        """Build a complete URL with format=json parameter.
+        
+        Args:
+            endpoint: API endpoint (relative to base_url)
+            params: Query parameters
+            
+        Returns:
+            Tuple of (complete_url, updated_params)
+        """
+        # Ensure endpoint starts with /
+        if not endpoint.startswith('/'):
+            endpoint = f'/{endpoint}'
+        
+        # Build full URL
+        url = urljoin(self.base_url, endpoint)
+        
+        # Ensure params dict exists and includes format=json
+        if params is None:
+            params = {}
+        
+        # CRITICAL: Always add format=json to force JSON responses
+        params['format'] = 'json'
+        
+        return url, params
+    
+    def ensure_json_format(self, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Ensure params include format=json.
+        
+        Args:
+            params: Existing parameters
+            
+        Returns:
+            Updated parameters with format=json
+        """
+        if params is None:
+            params = {}
+        params['format'] = 'json'
+        return params
+
+
 class PaperlessApiClient:
     """Low-level client for Paperless NGX API interactions.
     
@@ -47,6 +106,7 @@ class PaperlessApiClient:
     - Rate limiting
     - Pagination support
     - Error handling and logging
+    - Automatic format=json parameter injection
     """
     
     def __init__(
@@ -84,10 +144,13 @@ class PaperlessApiClient:
         # Track last request time for rate limiting
         self._last_request_time = 0.0
         
+        # Create request builder for URL construction
+        self.request_builder = ApiRequestBuilder(self.base_url)
+        
         # Create session with connection pooling
         self.session = self._create_session()
         
-        logger.info(f"Initialized Paperless API client for {self.base_url}")
+        logger.info(f"Initialized Paperless API client for {self.base_url} with automatic format=json")
     
     def _create_session(self) -> requests.Session:
         """Create HTTP session with connection pooling and retry logic.
@@ -179,9 +242,25 @@ class PaperlessApiClient:
         self._apply_rate_limit()
         
         # Build full URL
-        url = urljoin(self.base_url, endpoint.lstrip('/'))
+        # Fix urljoin behavior - ensure /api is preserved
+        if not self.base_url.endswith('/'):
+            base = self.base_url + '/'
+        else:
+            base = self.base_url
+        url = urljoin(base, endpoint.lstrip('/'))
         
-        logger.debug(f"{method} {url} (params={params})")
+        # CRITICAL: Ensure format=json is ALWAYS in params
+        if params is None:
+            params = {}
+        
+        # Force format=json to prevent HTML responses
+        params['format'] = 'json'
+        
+        # Log the full URL with params for debugging
+        param_string = urlencode(params) if params else ""
+        full_url = f"{url}?{param_string}" if param_string else url
+        logger.debug(f"{method} {full_url}")
+        logger.debug(f"Request params: {params}")
         
         try:
             response = self.session.request(
@@ -252,6 +331,9 @@ class PaperlessApiClient:
         
         # Add any additional filters
         params.update(filters)
+        
+        # CRITICAL: Force JSON response (must be AFTER update to not get overwritten!)
+        params['format'] = 'json'
         
         response = self._make_request('GET', '/documents/', params=params)
         return response.json()
@@ -384,6 +466,7 @@ class PaperlessApiClient:
             Paginated response dictionary
         """
         params = {'page': page, 'page_size': page_size}
+        params['format'] = 'json'  # Force JSON response
         response = self._make_request('GET', '/correspondents/', params=params)
         return response.json()
     
@@ -443,6 +526,7 @@ class PaperlessApiClient:
             Paginated response dictionary
         """
         params = {'page': page, 'page_size': page_size}
+        params['format'] = 'json'  # Force JSON response
         response = self._make_request('GET', '/tags/', params=params)
         return response.json()
     
@@ -531,6 +615,7 @@ class PaperlessApiClient:
             Paginated response dictionary
         """
         params = {'page': page, 'page_size': page_size}
+        params['format'] = 'json'  # Force JSON response
         response = self._make_request('GET', '/document_types/', params=params)
         return response.json()
     
@@ -622,11 +707,56 @@ class PaperlessApiClient:
             True if connection successful, False otherwise
         """
         try:
+            # Test with minimal page size - format=json added automatically
             response = self._make_request('GET', '/documents/', params={'page_size': 1})
-            return response.status_code == 200
+            
+            # Also verify we get JSON response
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    # Check for expected JSON structure
+                    if 'results' in data or 'count' in data:
+                        logger.info("Connection test successful - JSON response received")
+                        return True
+                    else:
+                        logger.warning(f"Unexpected JSON structure: {list(data.keys())}")
+                        return False
+                except ValueError:
+                    logger.error("Connection test failed - response is not JSON")
+                    return False
+            return False
         except Exception as e:
             logger.error(f"Connection test failed: {e}")
             return False
+    
+    def get_raw_response(self, endpoint: str, **params: Any) -> Dict[str, Any]:
+        """Get raw response from API for debugging.
+        
+        Args:
+            endpoint: API endpoint
+            **params: Query parameters
+            
+        Returns:
+            Raw response dictionary
+        """
+        try:
+            response = self._make_request('GET', endpoint, params=params)
+            return {
+                'status_code': response.status_code,
+                'headers': dict(response.headers),
+                'content_type': response.headers.get('Content-Type', ''),
+                'is_json': 'application/json' in response.headers.get('Content-Type', ''),
+                'data': response.json() if 'application/json' in response.headers.get('Content-Type', '') else response.text[:500]
+            }
+        except Exception as e:
+            return {
+                'error': str(e),
+                'status_code': None,
+                'headers': {},
+                'content_type': '',
+                'is_json': False,
+                'data': None
+            }
     
     def get_statistics(self) -> Dict[str, Any]:
         """Get Paperless statistics.

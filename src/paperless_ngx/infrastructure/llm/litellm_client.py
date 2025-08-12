@@ -32,7 +32,14 @@ logger = logging.getLogger(__name__)
 
 # Configure LiteLLM
 litellm.drop_params = True  # Drop unsupported params instead of failing
-litellm.success_callback = ["langfuse"]  # Optional: Add observability
+
+# Optional: Add observability if langfuse is available
+try:
+    import langfuse
+    litellm.success_callback = ["langfuse"]
+    logger.debug("Langfuse observability enabled")
+except ImportError:
+    logger.debug("Langfuse not installed, observability disabled")
 
 
 class ModelProvider(Enum):
