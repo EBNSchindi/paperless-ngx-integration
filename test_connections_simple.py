@@ -1,364 +1,332 @@
 #!/usr/bin/env python3
 """
-Simple connection test script without external dependencies.
-Tests basic connectivity to configured services.
+Einfacher Verbindungstest für Paperless NGX Integration.
+Testet alle konfigurierten Verbindungen ohne externe Dependencies.
 """
 
-import json
 import os
-import socket
-import ssl
 import sys
-import time
-import urllib.request
-import urllib.parse
-import urllib.error
+import json
+import imaplib
+import ssl
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, Any, List
+import urllib.request
+import urllib.error
 
-# ANSI color codes
-GREEN = '\033[92m'
-RED = '\033[91m'
-YELLOW = '\033[93m'
-BLUE = '\033[94m'
-CYAN = '\033[96m'
-RESET = '\033[0m'
-BOLD = '\033[1m'
+# Farben für Terminal-Ausgabe
+class Colors:
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    BLUE = '\033[94m'
+    RESET = '\033[0m'
+    BOLD = '\033[1m'
 
+def print_header(text: str):
+    """Druckt eine formatierte Überschrift."""
+    print(f"\n{Colors.BOLD}{Colors.BLUE}{'='*60}{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.BLUE}{text.center(60)}{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.BLUE}{'='*60}{Colors.RESET}\n")
 
-def print_colored(message, color=RESET, bold=False):
-    """Print colored message."""
-    prefix = BOLD if bold else ""
-    print(f"{prefix}{color}{message}{RESET}")
+def print_test(name: str, success: bool, message: str = ""):
+    """Druckt ein Testergebnis."""
+    status = f"{Colors.GREEN}✓ PASS{Colors.RESET}" if success else f"{Colors.RED}✗ FAIL{Colors.RESET}"
+    print(f"  {status} {name}")
+    if message:
+        print(f"        {Colors.YELLOW}{message}{Colors.RESET}")
 
-
-def print_header(title):
-    """Print section header."""
-    print_colored(f"\n{'=' * 60}", CYAN)
-    print_colored(f"  {title}", CYAN, bold=True)
-    print_colored(f"{'=' * 60}", CYAN)
-
-
-def load_env():
-    """Load environment variables from .env file."""
-    env_path = Path(__file__).parent / ".env"
+def load_env_file(env_path: Path) -> Dict[str, str]:
+    """Lädt Umgebungsvariablen aus .env Datei."""
     env_vars = {}
-    
     if not env_path.exists():
-        print_colored("✗ .env file not found!", RED)
+        print(f"{Colors.RED}FEHLER: .env Datei nicht gefunden!{Colors.RESET}")
+        print(f"Bitte erstellen Sie eine .env Datei basierend auf .env.example")
         return env_vars
     
     with open(env_path, 'r') as f:
         for line in f:
             line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                key, value = line.split('=', 1)
-                # Remove quotes if present
-                value = value.strip().strip('"').strip("'")
-                env_vars[key.strip()] = value
-                os.environ[key.strip()] = value
+            if line and not line.startswith('#'):
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    # Remove quotes if present
+                    value = value.strip('"').strip("'")
+                    env_vars[key.strip()] = value
     
     return env_vars
 
-
-def test_url_connection(url, headers=None, timeout=10):
-    """Test HTTP/HTTPS connection to a URL."""
-    try:
-        req = urllib.request.Request(url, headers=headers or {})
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            return True, response.status, response.read(100).decode('utf-8', errors='ignore')
-    except urllib.error.HTTPError as e:
-        return False, e.code, str(e)
-    except urllib.error.URLError as e:
-        return False, None, str(e)
-    except Exception as e:
-        return False, None, str(e)
-
-
-def test_socket_connection(host, port, timeout=10):
-    """Test TCP socket connection."""
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
-        result = sock.connect_ex((host, port))
-        sock.close()
-        return result == 0
-    except Exception as e:
-        return False
-
-
-def test_paperless_api(env_vars):
-    """Test Paperless NGX API."""
-    print_header("Testing Paperless NGX API")
-    
-    api_url = env_vars.get('PAPERLESS_BASE_URL')
-    api_token = env_vars.get('PAPERLESS_API_TOKEN')
-    
-    if not api_url or not api_token:
-        print_colored("✗ Missing PAPERLESS_BASE_URL or PAPERLESS_API_TOKEN", RED)
-        return False
-    
-    print_colored(f"API URL: {api_url}", BLUE)
-    
-    # Test connection
-    headers = {
-        'Authorization': f'Token {api_token}',
-        'Accept': 'application/json'
+def test_paperless_connection(env: Dict[str, str]) -> Dict[str, Any]:
+    """Testet die Verbindung zu Paperless NGX."""
+    result = {
+        'name': 'Paperless NGX API',
+        'status': False,
+        'message': '',
+        'details': {}
     }
     
-    test_url = f"{api_url}/documents/?page_size=1"
-    success, status, content = test_url_connection(test_url, headers)
+    base_url = env.get('PAPERLESS_BASE_URL', '').rstrip('/')
+    api_token = env.get('PAPERLESS_API_TOKEN', '')
     
-    if success:
-        print_colored(f"✓ Connected successfully (HTTP {status})", GREEN)
+    if not base_url or not api_token:
+        result['message'] = "URL oder Token fehlt in .env"
+        return result
+    
+    try:
+        # Test API endpoint
+        test_url = f"{base_url}/documents/"
+        req = urllib.request.Request(test_url)
+        req.add_header('Authorization', f'Token {api_token}')
+        
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status == 200:
+                result['status'] = True
+                result['message'] = f"Verbunden mit {base_url}"
+                # Try to parse response
+                try:
+                    data = json.loads(response.read().decode())
+                    result['details']['document_count'] = data.get('count', 0)
+                except:
+                    pass
+    except urllib.error.HTTPError as e:
+        result['message'] = f"HTTP {e.code}: {e.reason}"
+    except urllib.error.URLError as e:
+        result['message'] = f"Verbindungsfehler: {e.reason}"
+    except Exception as e:
+        result['message'] = str(e)
+    
+    return result
+
+def test_email_account(env: Dict[str, str], account_num: int) -> Dict[str, Any]:
+    """Testet eine Email-Verbindung."""
+    prefix = f"EMAIL_ACCOUNT_{account_num}_"
+    
+    result = {
+        'name': env.get(f'{prefix}NAME', f'Email Account {account_num}'),
+        'status': False,
+        'message': '',
+        'details': {}
+    }
+    
+    server = env.get(f'{prefix}SERVER', '')
+    port = int(env.get(f'{prefix}PORT', '993'))
+    username = env.get(f'{prefix}USERNAME', '')
+    password = env.get(f'{prefix}PASSWORD', '')
+    
+    if not all([server, username, password]):
+        result['message'] = "Konfiguration unvollständig"
+        return result
+    
+    result['details']['server'] = server
+    result['details']['username'] = username
+    
+    try:
+        # Create SSL context
+        context = ssl.create_default_context()
+        
+        # Connect to IMAP server
+        imap = imaplib.IMAP4_SSL(server, port, ssl_context=context)
+        
+        # Try to login
+        imap.login(username, password)
+        
+        # Get folder list to verify connection
+        status, folders = imap.list()
+        if status == 'OK':
+            result['status'] = True
+            result['message'] = f"Erfolgreich verbunden"
+            result['details']['folder_count'] = len(folders)
+            
+            # Check for INBOX
+            status, data = imap.select('INBOX', readonly=True)
+            if status == 'OK':
+                result['details']['inbox_messages'] = int(data[0])
+        
+        imap.logout()
+        
+    except imaplib.IMAP4.error as e:
+        result['message'] = f"IMAP Fehler: {str(e)}"
+        if 'AUTHENTICATIONFAILED' in str(e):
+            if 'gmail' in server.lower():
+                result['message'] += " (App-Passwort erforderlich!)"
+    except Exception as e:
+        result['message'] = f"Verbindungsfehler: {str(e)}"
+    
+    return result
+
+def test_llm_provider(env: Dict[str, str]) -> Dict[str, Any]:
+    """Testet die LLM Provider Konfiguration."""
+    result = {
+        'name': 'LLM Provider',
+        'status': False,
+        'message': '',
+        'details': {}
+    }
+    
+    provider = env.get('LLM_PROVIDER', 'openai').lower()
+    result['details']['configured_provider'] = provider
+    
+    if provider == 'openai':
+        api_key = env.get('OPENAI_API_KEY', '')
+        model = env.get('OPENAI_MODEL', 'gpt-3.5-turbo')
+        
+        if not api_key or api_key.startswith('sk-your'):
+            result['message'] = "OpenAI API Key nicht konfiguriert"
+            result['details']['fallback'] = 'Ollama wird als Fallback verwendet'
+        else:
+            # Basic validation of API key format
+            if api_key.startswith('sk-') and len(api_key) > 20:
+                result['status'] = True
+                result['message'] = f"OpenAI konfiguriert (Modell: {model})"
+                result['details']['priority'] = 'OpenAI → Ollama (Fallback)'
+            else:
+                result['message'] = "OpenAI API Key Format ungültig"
+    
+    elif provider == 'ollama':
+        base_url = env.get('OLLAMA_BASE_URL', 'http://localhost:11434')
+        model = env.get('OLLAMA_MODEL', 'llama3.1:8b')
+        
+        # Try to connect to Ollama
         try:
-            # Try to parse JSON response
-            data = json.loads(content) if len(content) > 2 else {}
-            if 'count' in str(content).lower():
-                print_colored(f"  API is responding with valid JSON", GREEN)
+            req = urllib.request.Request(f"{base_url}/api/tags")
+            with urllib.request.urlopen(req, timeout=5) as response:
+                if response.status == 200:
+                    result['status'] = True
+                    result['message'] = f"Ollama läuft (Modell: {model})"
+                    result['details']['priority'] = 'Ollama (lokal)'
         except:
-            pass
-        return True
+            result['message'] = "Ollama nicht erreichbar (ist 'ollama serve' gestartet?)"
+    
     else:
-        print_colored(f"✗ Connection failed: {content}", RED)
-        if status:
-            print_colored(f"  HTTP Status: {status}", RED)
-        return False
+        result['message'] = f"Unbekannter Provider: {provider}"
+    
+    return result
 
-
-def test_ollama(env_vars):
-    """Test Ollama connection."""
-    print_header("Testing Ollama LLM")
+def test_tag_matching_config(env: Dict[str, str]) -> Dict[str, Any]:
+    """Testet die Tag-Matching Konfiguration."""
+    result = {
+        'name': 'Tag-Matching Konfiguration',
+        'status': True,
+        'message': '',
+        'details': {}
+    }
     
-    enabled = env_vars.get('OLLAMA_ENABLED', 'true').lower() == 'true'
-    if not enabled:
-        print_colored("⊘ Ollama is disabled", YELLOW)
-        return None
+    threshold = float(env.get('TAG_SIMILARITY_THRESHOLD', '0.95'))
+    prevent_false = env.get('ENABLE_FALSE_POSITIVE_PREVENTION', 'true').lower() == 'true'
     
-    ollama_url = env_vars.get('OLLAMA_BASE_URL', 'http://localhost:11434')
-    model = env_vars.get('OLLAMA_MODEL', 'llama3.1:8b')
+    result['details']['similarity_threshold'] = f"{threshold:.0%}"
+    result['details']['false_positive_prevention'] = prevent_false
     
-    print_colored(f"Ollama URL: {ollama_url}", BLUE)
-    print_colored(f"Model: {model}", BLUE)
-    
-    # Parse URL to get host and port
-    from urllib.parse import urlparse
-    parsed = urlparse(ollama_url)
-    host = parsed.hostname or 'localhost'
-    port = parsed.port or 11434
-    
-    # Test socket connection
-    if test_socket_connection(host, port, timeout=5):
-        print_colored(f"✓ Ollama server is reachable at {host}:{port}", GREEN)
-        
-        # Try API endpoint
-        test_url = f"{ollama_url}/api/tags"
-        success, status, content = test_url_connection(test_url, timeout=5)
-        if success:
-            print_colored(f"  API endpoint is responding", GREEN)
-        return True
+    if threshold < 0.95:
+        result['status'] = False
+        result['message'] = f"Warnung: Threshold {threshold:.0%} < 95% kann zu falschen Vereinheitlichungen führen!"
     else:
-        print_colored(f"✗ Cannot connect to Ollama at {host}:{port}", RED)
-        print_colored(f"  Make sure Ollama is running: ollama serve", YELLOW)
-        return False
-
-
-def test_openai(env_vars):
-    """Test OpenAI configuration."""
-    print_header("Testing OpenAI (Fallback)")
+        result['message'] = f"Korrekt konfiguriert (95% Threshold)"
     
-    api_key = env_vars.get('OPENAI_API_KEY')
-    
-    if not api_key or api_key.startswith('sk-...'):
-        print_colored("⊘ OpenAI API key not configured or placeholder", YELLOW)
-        return None
-    
-    print_colored(f"✓ OpenAI API key is configured", GREEN)
-    print_colored(f"  Key starts with: {api_key[:7]}...", BLUE)
-    
-    # Test OpenAI API endpoint (without making actual request to save credits)
-    if test_socket_connection('api.openai.com', 443, timeout=5):
-        print_colored(f"  OpenAI API is reachable", GREEN)
-        return True
+    # Check business context
+    business_name = env.get('BUSINESS_NAME', '')
+    if 'Daniel Schindler' in business_name or 'EBN' in business_name:
+        result['details']['business_context'] = '✓ Daniel/EBN als Empfänger konfiguriert'
     else:
-        print_colored(f"  Warning: Cannot reach OpenAI API", YELLOW)
-        return False
-
-
-def test_email_accounts(env_vars):
-    """Test email account connections."""
-    print_header("Testing Email Accounts")
+        result['details']['business_context'] = '⚠ Business-Kontext prüfen'
     
-    results = []
-    
-    # Check for GMAIL1, GMAIL2, etc. pattern
-    for i in range(1, 10):  # Check up to 9 Gmail accounts
-        email_key = f"GMAIL{i}_EMAIL"
-        password_key = f"GMAIL{i}_APP_PASSWORD"
-        
-        email = env_vars.get(email_key)
-        password = env_vars.get(password_key)
-        
-        if not email:
-            continue
-        
-        # Gmail server settings
-        server = "imap.gmail.com"
-        port = 993
-        use_ssl = True
-        
-        print_colored(f"\nTesting: Gmail Account {i}", CYAN)
-        print_colored(f"  Email: {email}", BLUE)
-        print_colored(f"  Server: {server}:{port}", BLUE)
-        print_colored(f"  SSL: {use_ssl}", BLUE)
-        
-        if not password or password == "your_app_specific_password_here":
-            print_colored(f"  ✗ App password not configured or placeholder", RED)
-            results.append(False)
-        else:
-            # Test connection
-            if test_socket_connection(server, port, timeout=10):
-                print_colored(f"  ✓ Server is reachable", GREEN)
-                
-                # Test SSL
-                try:
-                    context = ssl.create_default_context()
-                    with socket.create_connection((server, port), timeout=10) as sock:
-                        with context.wrap_socket(sock, server_hostname=server) as ssock:
-                            print_colored(f"  ✓ SSL connection successful", GREEN)
-                            print_colored(f"  ✓ Ready for IMAP authentication", GREEN)
-                            results.append(True)
-                except Exception as e:
-                    print_colored(f"  ✗ SSL connection failed: {str(e)[:50]}", RED)
-                    results.append(False)
-            else:
-                print_colored(f"  ✗ Cannot connect to {server}:{port}", RED)
-                results.append(False)
-    
-    # Check for IONOS account
-    ionos_email = env_vars.get("IONOS_EMAIL")
-    ionos_password = env_vars.get("IONOS_PASSWORD")
-    
-    if ionos_email:
-        # IONOS server settings
-        server = "imap.ionos.de"
-        port = 993
-        use_ssl = True
-        
-        print_colored(f"\nTesting: IONOS Account", CYAN)
-        print_colored(f"  Email: {ionos_email}", BLUE)
-        print_colored(f"  Server: {server}:{port}", BLUE)
-        print_colored(f"  SSL: {use_ssl}", BLUE)
-        
-        if not ionos_password or ionos_password == "your_ionos_password_here":
-            print_colored(f"  ✗ Password not configured or placeholder", RED)
-            results.append(False)
-        else:
-            # Test connection
-            if test_socket_connection(server, port, timeout=10):
-                print_colored(f"  ✓ Server is reachable", GREEN)
-                
-                # Test SSL
-                try:
-                    context = ssl.create_default_context()
-                    with socket.create_connection((server, port), timeout=10) as sock:
-                        with context.wrap_socket(sock, server_hostname=server) as ssock:
-                            print_colored(f"  ✓ SSL connection successful", GREEN)
-                            print_colored(f"  ✓ Ready for IMAP authentication", GREEN)
-                            results.append(True)
-                except Exception as e:
-                    print_colored(f"  ✗ SSL connection failed: {str(e)[:50]}", RED)
-                    results.append(False)
-            else:
-                print_colored(f"  ✗ Cannot connect to {server}:{port}", RED)
-                results.append(False)
-    
-    if not results:
-        print_colored("⊘ No email accounts configured", YELLOW)
-        return None
-    
-    return results
-
+    return result
 
 def main():
-    """Main test execution."""
-    print_colored("\n" + "=" * 60, CYAN, bold=True)
-    print_colored("  Paperless NGX - Simple Connection Test", CYAN, bold=True)
-    print_colored("  " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"), CYAN)
-    print_colored("=" * 60 + "\n", CYAN, bold=True)
+    """Hauptfunktion für Verbindungstests."""
+    print_header("Paperless NGX Integration - Verbindungstest")
     
-    # Load environment variables
-    print_colored("Loading .env configuration...", BLUE)
-    env_vars = load_env()
+    # Load environment
+    env_path = Path('.env')
+    env = load_env_file(env_path)
     
-    if not env_vars:
-        print_colored("✗ No configuration found. Please create .env file", RED)
+    if not env:
         sys.exit(1)
     
-    print_colored(f"✓ Loaded {len(env_vars)} environment variables\n", GREEN)
+    print(f"Umgebung geladen: {len(env)} Variablen\n")
     
-    # Run tests
-    results = {
-        'paperless': test_paperless_api(env_vars),
-        'ollama': test_ollama(env_vars),
-        'openai': test_openai(env_vars),
-        'email': test_email_accounts(env_vars)
-    }
+    all_results = []
+    
+    # Test Paperless
+    print(f"{Colors.BOLD}1. Paperless NGX Verbindung{Colors.RESET}")
+    result = test_paperless_connection(env)
+    print_test(result['name'], result['status'], result['message'])
+    if result['details'].get('document_count') is not None:
+        print(f"        Dokumente in Paperless: {result['details']['document_count']}")
+    all_results.append(result)
+    
+    # Test LLM Provider Priority
+    print(f"\n{Colors.BOLD}2. LLM Provider Priorität{Colors.RESET}")
+    result = test_llm_provider(env)
+    print_test(result['name'], result['status'], result['message'])
+    if result['details'].get('priority'):
+        print(f"        Priorität: {result['details']['priority']}")
+    all_results.append(result)
+    
+    # Test Email Accounts
+    print(f"\n{Colors.BOLD}3. Email Konten (3 konfiguriert){Colors.RESET}")
+    for i in range(1, 4):
+        result = test_email_account(env, i)
+        if result['name'] != f'Email Account {i}':  # Only test if configured
+            print_test(result['name'], result['status'], result['message'])
+            if result['status'] and result['details'].get('inbox_messages') is not None:
+                print(f"        Nachrichten in INBOX: {result['details']['inbox_messages']}")
+            all_results.append(result)
+    
+    # Test Tag Matching Config
+    print(f"\n{Colors.BOLD}4. Tag-Matching Einstellungen{Colors.RESET}")
+    result = test_tag_matching_config(env)
+    print_test(result['name'], result['status'], result['message'])
+    for key, value in result['details'].items():
+        print(f"        {key}: {value}")
+    all_results.append(result)
     
     # Summary
-    print_header("Test Summary")
+    print_header("Zusammenfassung")
     
-    success_count = 0
-    failed_count = 0
-    skipped_count = 0
+    passed = sum(1 for r in all_results if r['status'])
+    failed = len(all_results) - passed
     
-    for service, result in results.items():
-        if result is True:
-            print_colored(f"✓ {service.capitalize()}: Working", GREEN)
-            success_count += 1
-        elif result is False:
-            print_colored(f"✗ {service.capitalize()}: Failed", RED)
-            failed_count += 1
-        elif result is None:
-            print_colored(f"⊘ {service.capitalize()}: Not configured/disabled", YELLOW)
-            skipped_count += 1
-        elif isinstance(result, list):
-            # Email accounts
-            working = sum(1 for r in result if r)
-            total = len(result)
-            if working == total:
-                print_colored(f"✓ Email: All {total} account(s) working", GREEN)
-                success_count += 1
-            elif working > 0:
-                print_colored(f"⚠ Email: {working}/{total} account(s) working", YELLOW)
-                success_count += 1
-            else:
-                print_colored(f"✗ Email: All accounts failed", RED)
-                failed_count += 1
+    print(f"Getestet: {len(all_results)} Verbindungen")
+    print(f"{Colors.GREEN}Erfolgreich: {passed}{Colors.RESET}")
+    print(f"{Colors.RED}Fehlgeschlagen: {failed}{Colors.RESET}")
     
-    print_colored(f"\nStatistics:", CYAN)
-    print_colored(f"  Successful: {success_count}", GREEN)
-    if failed_count > 0:
-        print_colored(f"  Failed: {failed_count}", RED)
-    if skipped_count > 0:
-        print_colored(f"  Not configured: {skipped_count}", YELLOW)
+    if failed > 0:
+        print(f"\n{Colors.YELLOW}Fehlgeschlagene Tests:{Colors.RESET}")
+        for r in all_results:
+            if not r['status']:
+                print(f"  - {r['name']}: {r['message']}")
     
-    if failed_count == 0 and success_count > 0:
-        print_colored("\n✓ All configured services are reachable!", GREEN, bold=True)
-    elif failed_count > 0:
-        print_colored(f"\n⚠ {failed_count} service(s) failed. Check configuration.", RED, bold=True)
+    # Check LLM priority specifically
+    print(f"\n{Colors.BOLD}LLM Provider Priorität:{Colors.RESET}")
+    provider = env.get('LLM_PROVIDER', 'openai').lower()
+    if provider == 'openai':
+        if env.get('OPENAI_API_KEY', '').startswith('sk-') and len(env.get('OPENAI_API_KEY', '')) > 20:
+            print(f"  {Colors.GREEN}✓{Colors.RESET} OpenAI wird als primärer Provider verwendet")
+            print(f"  {Colors.BLUE}→{Colors.RESET} Ollama wird nur als Fallback verwendet")
+        else:
+            print(f"  {Colors.YELLOW}⚠{Colors.RESET} OpenAI konfiguriert aber API Key fehlt")
+            print(f"  {Colors.BLUE}→{Colors.RESET} Ollama wird automatisch verwendet")
     else:
-        print_colored("\n⊘ No services properly configured.", YELLOW, bold=True)
+        print(f"  {Colors.BLUE}ℹ{Colors.RESET} Ollama als primärer Provider konfiguriert")
     
-    # Save results
-    results_file = Path(__file__).parent / "test_results_simple.json"
+    # Save results to JSON
+    results_file = Path('connection_test_results.json')
     with open(results_file, 'w') as f:
         json.dump({
             'timestamp': datetime.now().isoformat(),
-            'results': {k: str(v) for k, v in results.items()}
+            'summary': {
+                'total': len(all_results),
+                'passed': passed,
+                'failed': failed
+            },
+            'results': all_results
         }, f, indent=2)
-    print_colored(f"\nResults saved to: {results_file}", BLUE)
-
+    
+    print(f"\n{Colors.BLUE}Ergebnisse gespeichert in:{Colors.RESET} {results_file}")
+    
+    return 0 if failed == 0 else 1
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional, Set
+from typing import Any, Dict, List, Literal, Optional, Set
 
 from pydantic import (
     Field,
@@ -81,6 +81,13 @@ class Settings(BaseSettings):
         description="Use LiteLLM for unified LLM interface"
     )
     
+    # LLM Provider Order Configuration
+    llm_provider_order: List[str] = Field(
+        default=["openai", "ollama", "anthropic"],
+        description="Order in which to try LLM providers",
+        min_items=1
+    )
+    
     # Ollama Configuration
     ollama_enabled: bool = Field(
         default=True,
@@ -108,10 +115,18 @@ class Settings(BaseSettings):
         description="Maximum retries for Ollama requests"
     )
     
-    # OpenAI Configuration (Fallback)
+    # OpenAI Configuration
+    openai_enabled: bool = Field(
+        default=True,
+        description="Enable OpenAI provider"
+    )
     openai_api_key: Optional[SecretStr] = Field(
         default=None,
-        description="OpenAI API key for fallback"
+        description="OpenAI API key"
+    )
+    openai_organization: Optional[str] = Field(
+        default=None,
+        description="OpenAI organization ID"
     )
     openai_model: str = Field(
         default="gpt-3.5-turbo",
@@ -134,6 +149,75 @@ class Settings(BaseSettings):
         ge=0.0,
         le=2.0,
         description="Temperature for OpenAI model"
+    )
+    
+    # Anthropic Configuration (Placeholder)
+    anthropic_enabled: bool = Field(
+        default=False,
+        description="Enable Anthropic Claude provider"
+    )
+    anthropic_api_key: Optional[SecretStr] = Field(
+        default=None,
+        description="Anthropic API key"
+    )
+    anthropic_model: str = Field(
+        default="claude-3-sonnet",
+        description="Anthropic model to use"
+    )
+    anthropic_max_retries: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum retries for Anthropic requests"
+    )
+    
+    # Google Gemini Configuration (Placeholder)
+    gemini_enabled: bool = Field(
+        default=False,
+        description="Enable Google Gemini provider"
+    )
+    gemini_api_key: Optional[SecretStr] = Field(
+        default=None,
+        description="Google Gemini API key"
+    )
+    gemini_model: str = Field(
+        default="gemini-pro",
+        description="Gemini model to use"
+    )
+    gemini_max_retries: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum retries for Gemini requests"
+    )
+    
+    # Custom LLM Configuration (Placeholder)
+    custom_llm_enabled: bool = Field(
+        default=False,
+        description="Enable custom LLM provider"
+    )
+    custom_llm_name: str = Field(
+        default="custom-provider",
+        description="Name of custom LLM provider"
+    )
+    custom_llm_api_key: Optional[SecretStr] = Field(
+        default=None,
+        description="Custom LLM API key"
+    )
+    custom_llm_base_url: Optional[str] = Field(
+        default=None,
+        description="Custom LLM base URL",
+        pattern=r"^https?://.*"
+    )
+    custom_llm_model: str = Field(
+        default="custom-model",
+        description="Custom LLM model to use"
+    )
+    custom_llm_max_retries: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum retries for custom LLM requests"
     )
     
     # Logging Configuration
@@ -235,16 +319,35 @@ class Settings(BaseSettings):
     
     @model_validator(mode="after")
     def validate_llm_config(self) -> "Settings":
-        """Ensure at least one LLM is configured."""
-        if not self.ollama_enabled and not self.openai_api_key:
+        """Ensure at least one LLM is configured and provider order is valid."""
+        # Check that at least one provider in the order is enabled and configured
+        available_providers = []
+        
+        for provider in self.llm_provider_order:
+            if provider == "openai" and self.openai_enabled and self.openai_api_key:
+                available_providers.append("openai")
+            elif provider == "ollama" and self.ollama_enabled:
+                available_providers.append("ollama")
+            elif provider == "anthropic" and self.anthropic_enabled and self.anthropic_api_key:
+                available_providers.append("anthropic")
+            elif provider == "gemini" and self.gemini_enabled and self.gemini_api_key:
+                available_providers.append("gemini")
+            elif provider == "custom" and self.custom_llm_enabled and self.custom_llm_api_key:
+                available_providers.append("custom")
+        
+        if not available_providers:
             raise ValueError(
-                "At least one LLM must be configured. "
-                "Enable Ollama or provide OpenAI API key."
+                "At least one LLM provider must be properly configured. "
+                "Check that providers in LLM_PROVIDER_ORDER are enabled and have API keys."
             )
         
-        if self.openai_api_key is None and not self.ollama_enabled:
+        # Validate provider names in order
+        valid_providers = {"openai", "ollama", "anthropic", "gemini", "custom"}
+        invalid_providers = set(self.llm_provider_order) - valid_providers
+        if invalid_providers:
             raise ValueError(
-                "OpenAI API key is required when Ollama is disabled"
+                f"Invalid provider(s) in LLM_PROVIDER_ORDER: {invalid_providers}. "
+                f"Valid providers are: {valid_providers}"
             )
         
         return self
@@ -321,13 +424,26 @@ class Settings(BaseSettings):
             results["valid"] = False
         
         # Check LLM configuration
-        if self.ollama_enabled:
-            results["info"].append(f"Ollama enabled with model: {self.ollama_model}")
+        results["info"].append(f"LLM provider order: {' -> '.join(self.llm_provider_order)}")
         
-        if self.openai_api_key:
-            results["info"].append(f"OpenAI configured as fallback with model: {self.openai_model}")
+        available_providers = []
+        for provider in self.llm_provider_order:
+            if provider == "openai" and self.openai_enabled and self.openai_api_key:
+                available_providers.append(f"OpenAI ({self.openai_model})")
+            elif provider == "ollama" and self.ollama_enabled:
+                available_providers.append(f"Ollama ({self.ollama_model})")
+            elif provider == "anthropic" and self.anthropic_enabled and self.anthropic_api_key:
+                available_providers.append(f"Anthropic ({self.anthropic_model})")
+            elif provider == "gemini" and self.gemini_enabled and self.gemini_api_key:
+                available_providers.append(f"Gemini ({self.gemini_model})")
+            elif provider == "custom" and self.custom_llm_enabled and self.custom_llm_api_key:
+                available_providers.append(f"Custom ({self.custom_llm_name}: {self.custom_llm_model})")
+        
+        if available_providers:
+            results["info"].append(f"Available LLM providers: {', '.join(available_providers)}")
         else:
-            results["warnings"].append("No OpenAI API key configured - fallback unavailable")
+            results["errors"].append("No LLM providers properly configured")
+            results["valid"] = False
         
         # Check URLs accessibility (optional)
         if self.paperless_base_url.startswith("http://"):
@@ -370,7 +486,10 @@ class Settings(BaseSettings):
         # Mask sensitive fields
         sensitive_fields = {
             "paperless_api_token",
-            "openai_api_key"
+            "openai_api_key",
+            "anthropic_api_key",
+            "gemini_api_key",
+            "custom_llm_api_key"
         }
         
         for field in sensitive_fields:
