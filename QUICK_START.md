@@ -1,128 +1,187 @@
 # 🚀 Quick Start Guide
 
-## Installation & Start (Alle Systeme)
+> **Plattform-Support**: Windows 10/11 ✅ | Linux ✅ | macOS ✅  
+> **Python-Version**: 3.8+ erforderlich  
+> **Letztes Update**: 2025-08-12
+
+## ⚡ 5-Minuten-Setup
 
 ### Windows
 ```powershell
-# 1. Virtual Environment erstellen
-python -m venv venv
+# 1. Repository klonen
+git clone https://github.com/EBNSchindi/paperless-ngx-integration.git
+cd paperless-ngx-integration
 
-# 2. Dependencies installieren
+# 2. Virtual Environment erstellen & aktivieren
+python -m venv venv
 venv\Scripts\activate
+
+# 3. Dependencies installieren
 pip install -r requirements.txt
 
-# 3. Konfiguration
+# 4. Konfiguration (WICHTIG!)
 copy .env.example .env
-notepad .env  # Credentials eintragen!
+notepad .env  # ← Paperless URL & API Token eintragen!
 
-# 4. STARTEN
-start.bat
-# oder direkt:
+# 5. UTF-8 für Windows aktivieren
+set PYTHONUTF8=1
+
+# 6. STARTEN 🚀
 python start.py
 ```
 
-### Linux/Mac
+### Linux/macOS
 ```bash
-# 1. Virtual Environment erstellen
-python3 -m venv venv
+# 1. Repository klonen
+git clone https://github.com/EBNSchindi/paperless-ngx-integration.git
+cd paperless-ngx-integration
 
-# 2. Dependencies installieren
+# 2. Virtual Environment erstellen & aktivieren
+python3 -m venv venv
 source venv/bin/activate
+
+# 3. Dependencies installieren
 pip install -r requirements.txt
 
-# 3. Konfiguration
+# 4. Konfiguration (WICHTIG!)
 cp .env.example .env
-nano .env  # Credentials eintragen!
+nano .env  # ← Paperless URL & API Token eintragen!
 
-# 4. STARTEN
-./start.sh
-# oder direkt:
+# 5. STARTEN 🚀
 python3 start.py
 ```
 
-## 🎯 Universelle Starter
+## 🎯 Der 3-Punkt-Workflow
 
-Wir haben **EINEN** universellen Starter für alle Systeme:
+Nach dem Setup stehen dir 3 Hauptworkflows zur Verfügung:
 
-| Datei | System | Beschreibung |
-|-------|--------|--------------|
-| `start.py` | Alle | Hauptstarter (Python) |
-| `start.bat` | Windows | Windows-Wrapper |
-| `start.sh` | Linux/Mac | Unix-Wrapper |
+### 1️⃣ Email-Dokumente abrufen
+```bash
+python start.py --workflow 1
+```
+- Holt Anhänge aus allen konfigurierten Email-Konten
+- Organisiert Dateien nach Monat (YYYY-MM)
+- Erkennt automatisch PDF-Dokumente
 
-### Direktstart ohne Menü
+### 2️⃣ Dokumente verarbeiten & anreichern
+```bash
+python start.py --workflow 2
+```
+- Extrahiert OCR-Text aus Paperless
+- Analysiert mit LLM (OpenAI/Ollama)
+- Matched Tags intelligent (95% Threshold)
+- Aktualisiert Metadaten in Paperless
+
+### 3️⃣ Quality Scan & Report
+```bash
+python start.py --workflow 3
+```
+- Prüft Dokumente auf fehlende Metadaten
+- Identifiziert Probleme mit Tags/OCR
+- Generiert CSV-Report mit Empfehlungen
+
+## 🎨 Interaktives Menü
+
+Ohne Parameter startet das interaktive Menü:
 
 ```bash
-# Windows
-python start.py --workflow 1  # Email-Download
-python start.py --workflow 2  # Dokumente verarbeiten
-python start.py --workflow 3  # Quality Scan
-
-# Linux/Mac
-./start.sh --workflow 1  # Email-Download
-./start.sh --workflow 2  # Dokumente verarbeiten
-./start.sh --workflow 3  # Quality Scan
+python start.py  # Windows
+python3 start.py # Linux/macOS
 ```
 
-## ⚙️ Was macht der Starter?
+```
+╔════════════════════════════════════════╗
+║     Paperless NGX Integration          ║
+║        Simplified Workflow              ║
+╚════════════════════════════════════════╝
 
-1. **Prüft Virtual Environment** - Warnt wenn nicht aktiviert
-2. **Prüft .env Datei** - Erstellt aus Template wenn fehlt
-3. **Installiert Dependencies** - Automatisch wenn nötig
-4. **Zeigt Menü** - 7 Optionen zur Auswahl
-5. **Cross-Platform** - Funktioniert überall gleich
+1. 📥 Email-Dokumente abrufen
+2. 🔄 Dokumente verarbeiten & anreichern
+3. 📊 Quality Scan & Report
+4. 🚀 Alle Workflows nacheinander
+5. 🔧 Verbindungen testen
+6. ❌ Beenden
 
-## 📋 Menü-Optionen
+Wähle Option (1-6):
+```
 
-1. **Vereinfachtes 3-Punkt-Menü** (empfohlen)
-2. **Vollständiges Hauptmenü** (8 Optionen)
-3. **Verbindungen testen**
-4. **Email-Download** (Workflow 1)
-5. **Dokumente verarbeiten** (Workflow 2)
-6. **Quality Scan** (Workflow 3)
-7. **Kompletter Durchlauf** (alle 3 Workflows)
+## ⚠️ Häufige Probleme & Lösungen
 
-## 🔧 Troubleshooting
+### Windows: "Python nicht gefunden"
+```powershell
+# Python von python.org installieren
+# Dann in PowerShell als Admin:
+winget install Python.Python.3.12
+```
 
-### "Module not found"
+### Linux: "pip: command not found"
 ```bash
+sudo apt update
+sudo apt install python3-pip python3-venv
+```
+
+### Alle Systeme: "ModuleNotFoundError"
+```bash
+# Virtual Environment aktiviert?
+source venv/bin/activate  # Linux/Mac
+venv\Scripts\activate     # Windows
+
+# Dependencies installieren
 pip install -r requirements.txt
 ```
 
-### "Virtual Environment nicht gefunden"
+### ".env Datei fehlt"
 ```bash
-# Windows
-python -m venv venv
-
-# Linux/Mac
-python3 -m venv venv
-```
-
-### ".env nicht konfiguriert"
-```bash
-# Kopiere Template und editiere
+# Template kopieren
 cp .env.example .env
+
+# Minimal-Konfiguration:
+PAPERLESS_BASE_URL=http://192.168.1.100:8000/api
+PAPERLESS_API_TOKEN=dein-api-token-hier
+OPENAI_API_KEY=sk-...  # Oder Ollama nutzen
 ```
 
-## 💡 Tipps
+## 🔍 Verbindungen testen
 
-- **Immer in venv arbeiten!** Der Starter warnt dich
-- **Erst .env konfigurieren!** Sonst keine Verbindungen
-- **Option 3 zum Testen** - Prüft alle Verbindungen
-- **Option 7 für Komplett-Durchlauf** - Alle 3 Workflows
-
-## 🎯 Schnelltest
-
+**Immer zuerst testen:**
 ```bash
-# Windows
-start.bat
-# → Wähle Option 3 (Verbindungen testen)
-
-# Linux/Mac
-./start.sh
-# → Wähle Option 3 (Verbindungen testen)
+python start.py
+# → Option 5: Verbindungen testen
 ```
+
+Erfolgreiche Ausgabe:
+```
+✅ Paperless NGX: Verbunden (447 Dokumente)
+✅ OpenAI: Verfügbar (GPT-3.5)
+✅ Email: 3 Konten konfiguriert
+✅ Dateisystem: Schreibrechte OK
+```
+
+## 💡 Pro-Tipps
+
+1. **Windows UTF-8**: Permanent aktivieren
+   ```powershell
+   [System.Environment]::SetEnvironmentVariable('PYTHONUTF8', '1', 'User')
+   ```
+
+2. **Linux Alias**: Schnellzugriff einrichten
+   ```bash
+   echo "alias paperless='cd ~/paperless-ngx-integration && source venv/bin/activate && python3 start.py'" >> ~/.bashrc
+   ```
+
+3. **Automatisierung**: Cron/Task Scheduler
+   ```bash
+   # Linux Cron (täglich um 2 Uhr)
+   0 2 * * * cd /home/user/paperless-ngx-integration && venv/bin/python start.py --workflow 1,2,3
+   ```
+
+## 📚 Weiterführende Dokumentation
+
+- **[Vollständige Installation](docs/setup/)** - Detaillierte Platform-Guides
+- **[Workflows erklärt](docs/user-guide/WORKFLOWS.md)** - Was passiert im Detail
+- **[API Referenz](docs/API_REFERENCE.md)** - Für Entwickler
+- **[FAQ](docs/user-guide/FAQ.md)** - Häufige Fragen
 
 ---
 
-**Das war's!** Mit `start.py` / `start.bat` / `start.sh` läuft alles. 🚀
+**🎉 Fertig!** Du bist startklar. Bei Problemen → [docs/setup/TROUBLESHOOTING.md](docs/setup/TROUBLESHOOTING.md)
