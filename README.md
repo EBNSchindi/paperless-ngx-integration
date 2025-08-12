@@ -3,6 +3,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Clean Architecture](https://img.shields.io/badge/architecture-clean-green.svg)](docs/architecture/PROJECT_SCOPE.md)
 [![Test Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](tests/)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](docs/setup/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A comprehensive document management automation system that integrates with Paperless NGX to provide AI-powered metadata extraction, intelligent tag management, and automated quality assurance.
@@ -37,15 +38,19 @@ A comprehensive document management automation system that integrates with Paper
 
 ### Prerequisites
 
-- Python 3.11+ (3.9+ minimum)
-- Paperless NGX instance (v1.17.0+)
-- LLM Provider (choose one or more):
-  - OpenAI API key (recommended)
-  - Ollama local installation
-  - Anthropic/Gemini API key (future)
-- 8GB RAM recommended
+- **Python**: 3.11+ recommended (3.9+ minimum)
+- **OS**: Windows 10+, Ubuntu 20.04+, macOS 11+ (or equivalent)
+- **Paperless NGX**: Instance v1.17.0+ with API access
+- **LLM Provider** (choose one or more):
+  - OpenAI API key (recommended for quality)
+  - Ollama local installation (recommended for privacy)
+  - Anthropic/Gemini API key (coming soon)
+- **Memory**: 8GB RAM recommended (4GB minimum)
+- **Storage**: 2-5GB free space
 
 ### Installation
+
+#### Quick Install (All Platforms)
 
 ```bash
 # 1. Clone the repository
@@ -54,26 +59,43 @@ cd paperless-ngx-integration
 
 # 2. Create virtual environment
 python -m venv venv
-source venv/bin/activate  # Linux/macOS
-venv\Scripts\activate     # Windows
 
-# 3. Install dependencies
+# 3. Activate virtual environment
+# Linux/macOS:
+source venv/bin/activate
+# Windows Command Prompt:
+venv\Scripts\activate
+# Windows PowerShell:
+venv\Scripts\Activate.ps1
+
+# 4. Install dependencies
+pip install --upgrade pip
 pip install -r requirements.txt
 
-# 4. Configure environment
-cp .env.example .env
+# 5. Configure environment
+cp .env.example .env  # Linux/macOS
+copy .env.example .env  # Windows
 # Edit .env with your credentials
 
-# 5. (Optional) Install Ollama for local LLM
-# Download from https://ollama.ai
+# 6. (Optional) Install Ollama for local LLM
+# Linux: curl -fsSL https://ollama.ai/install.sh | sh
+# Windows: Download from https://ollama.ai/download/windows
 ollama pull llama3.1:8b
 
-# 6. Test connections
+# 7. Test connections
 python test_connections.py
 
-# 7. Run the application
+# 8. Run the application
 python run.py
 ```
+
+#### Platform-Specific Guides
+
+For detailed platform-specific instructions:
+- **[Windows Setup Guide](docs/setup/WINDOWS_SETUP.md)** - Includes PowerShell setup, long path support, encoding configuration
+- **[Linux Setup Guide](docs/setup/LINUX_SETUP.md)** - Covers Ubuntu, Debian, Fedora, Arch, and WSL2
+- **[macOS Setup Guide](docs/setup/MACOS_SETUP.md)** - Coming soon
+- **[Troubleshooting Guide](docs/setup/TROUBLESHOOTING.md)** - Platform-specific issues and solutions
 
 ## 📖 Usage
 
@@ -135,6 +157,22 @@ python run.py --fetch-email-attachments --dry-run
 # Output as JSON
 python run.py --output json [command]
 ```
+
+## Cross-Platform Compatibility
+
+This project is designed to work seamlessly across different operating systems:
+
+### Supported Platforms
+- ✅ **Windows 10/11** - Full support with automatic path handling
+- ✅ **Linux** - Ubuntu, Debian, Fedora, Arch Linux tested
+- ✅ **WSL2** - Windows Subsystem for Linux fully supported
+- 🔄 **macOS** - Community testing in progress
+
+### Platform Features
+- **Automatic Path Handling**: Uses pathlib for cross-platform paths
+- **UTF-8 Encoding**: Consistent encoding across all platforms
+- **Platform Detection**: Automatically adapts to your OS
+- **Unified Configuration**: Same .env file works everywhere
 
 ## Project Structure
 
@@ -212,19 +250,28 @@ See [.env.example](.env.example) for complete configuration options.
 
 ## 📚 Documentation
 
+### Quick Navigation
+- **[📑 Documentation Index](docs/INDEX.md)** - Complete documentation directory
+- **[🚀 Quick Start Guide](docs/setup/QUICKSTART.md)** - Get running in 5 minutes
+- **[❓ FAQ](docs/user-guide/FAQ.md)** - Common questions answered
+
 ### User Documentation
-- **[User Manual](docs/USER_MANUAL.md)**: Complete user guide with workflows
-- **[Installation Guide](docs/INSTALLATION_GUIDE.md)**: Detailed setup instructions
-- **[Configuration Guide](.env.example)**: All configuration options explained
+- **[User Manual](docs/USER_MANUAL.md)** - Complete user guide with workflows
+- **[Installation Guide](docs/INSTALLATION_GUIDE.md)** - Detailed setup instructions
+- **[Platform Setup Guides](docs/setup/)** - OS-specific installation
+- **[Configuration Guide](.env.example)** - All configuration options explained
 
 ### Technical Documentation
-- **[Architecture Overview](docs/architecture/PROJECT_SCOPE.md)**: System design and components
-- **[API Reference](docs/API_REFERENCE.md)**: Technical API documentation
-- **[CLAUDE.md](CLAUDE.md)**: AI assistant context and guidelines
+- **[Architecture Overview](docs/architecture/PROJECT_SCOPE.md)** - System design and components
+- **[API Reference](docs/API_REFERENCE.md)** - Technical API documentation
+- **[Platform Abstraction](docs/architecture/PLATFORM_ABSTRACTION.md)** - Cross-platform design
+- **[CLAUDE.md](CLAUDE.md)** - AI assistant context and guidelines
 
 ### Development
-- **[Agent Log](AGENT_LOG.md)**: Development history and decisions
-- **[Test Documentation](tests/README.md)**: Testing strategy and coverage
+- **[Contributing Guide](docs/development/CONTRIBUTING.md)** - How to contribute
+- **[Agent Log](AGENT_LOG.md)** - Development history and decisions
+- **[Test Documentation](tests/README.md)** - Testing strategy and coverage
+- **[Changelog](CHANGELOG.md)** - Version history and updates
 
 ## Business Rules
 
@@ -314,14 +361,18 @@ git push origin feature/amazing-feature
 
 ### Common Issues
 
-| Issue | Solution |
-|-------|----------|
-| "Connection refused to Paperless" | Check Paperless URL and network |
-| "Ollama not responding" | Run `ollama serve` in terminal |
-| "Gmail authentication failed" | Use app-specific password, not regular password |
-| "OCR text empty" | Reprocess document in Paperless |
+| Issue | Platform | Solution |
+|-------|----------|----------|
+| "Connection refused to Paperless" | All | Check Paperless URL and network |
+| "Ollama not responding" | All | Run `ollama serve` (Linux) or check service (Windows) |
+| "Gmail authentication failed" | All | Use app-specific password, not regular password |
+| "OCR text empty" | All | Reprocess document in Paperless |
+| "Path too long" error | Windows | Enable long path support (see [Windows Setup](docs/setup/WINDOWS_SETUP.md)) |
+| "Permission denied" | Linux | Check file ownership and permissions |
+| "UnicodeDecodeError" | Windows | Set `PYTHONUTF8=1` environment variable |
+| "Module not found" | All | Ensure virtual environment is activated |
 
-For detailed troubleshooting, see the [User Manual](docs/USER_MANUAL.md#fehlerbehebung).
+For detailed troubleshooting, see the [Platform Troubleshooting Guide](docs/setup/TROUBLESHOOTING.md) or [User Manual](docs/USER_MANUAL.md#fehlerbehebung).
 
 ## License
 

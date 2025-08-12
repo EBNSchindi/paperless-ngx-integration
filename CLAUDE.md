@@ -275,6 +275,7 @@ python run.py --output json [command]
 - **Domain-Driven Design**: Business logic isolated in domain layer
 - **Dependency Injection**: Flexible service configuration
 - **Type Safety**: Pydantic v2 models throughout
+- **Cross-Platform Design**: Platform abstraction layer for Windows/Linux/WSL2 compatibility
 
 ### Key Features
 - **Configurable LLM Router**: Define provider order via `LLM_PROVIDER_ORDER`
@@ -285,6 +286,13 @@ python run.py --output json [command]
 - **Cost Tracking**: LLM usage monitoring with alerts
 - **Rate Limiting**: API overload prevention
 - **State Management**: Duplicate processing prevention
+- **Cross-Platform Support**: Automatic OS detection and adaptation
+  - Windows: Long path support, APPDATA config, UTF-8 mode
+  - Linux: Hidden directories, signal handling, permissions
+  - WSL2: Hybrid path handling, Windows host integration
+- **Path Handling**: All paths use pathlib for automatic separator conversion
+- **UTF-8 Encoding**: Explicit encoding for all file operations
+- **Temp File Management**: Platform-aware temporary directories with cleanup
 
 ### Security & Quality
 - **SecretStr Usage**: All credentials masked in memory
