@@ -263,7 +263,7 @@ class LiteLLMClient:
         if self.settings.anthropic_enabled and self.settings.anthropic_api_key:
             provider_models["anthropic"] = {
                 "litellm_params": {
-                    "model": f"claude-3-5-sonnet-20241022",  # Use actual Anthropic model name
+                    "model": self.settings.anthropic_model,  # Use configured model name
                     "api_key": self.settings.get_secret_value("anthropic_api_key"),
                     "timeout": 30,
                     "stream": False,

@@ -86,9 +86,17 @@ class Settings(BaseSettings):
         description="Use LiteLLM for unified LLM interface"
     )
     
+    _llm_provider_order_cache: Optional[List[str]] = None
+    
     @property
     def llm_provider_order(self) -> List[str]:
-        """Get provider order based on rank values (lower rank = higher priority)."""
+        """Get provider order based on rank values (lower rank = higher priority).
+        
+        Cached to avoid recalculation on every access.
+        """
+        if self._llm_provider_order_cache is not None:
+            return self._llm_provider_order_cache
+            
         providers_with_rank = []
         
         # Collect enabled providers with their ranks
@@ -106,8 +114,9 @@ class Settings(BaseSettings):
         # Sort by rank (ascending - rank 1 comes first)
         providers_with_rank.sort(key=lambda x: x[1])
         
-        # Return just the provider names in order
-        return [provider for provider, _ in providers_with_rank]
+        # Cache and return just the provider names in order
+        self._llm_provider_order_cache = [provider for provider, _ in providers_with_rank]
+        return self._llm_provider_order_cache
     
     # Ollama Configuration
     ollama_enabled: bool = Field(
