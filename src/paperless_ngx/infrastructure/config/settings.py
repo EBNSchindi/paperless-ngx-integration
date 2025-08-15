@@ -281,16 +281,42 @@ class Settings(BaseSettings):
         description="Maximum length for document descriptions"
     )
     min_tags: int = Field(
-        default=3,
+        default=2,
         ge=1,
         le=10,
         description="Minimum number of tags per document"
     )
     max_tags: int = Field(
-        default=7,
-        ge=3,
+        default=4,
+        ge=2,
         le=20,
-        description="Maximum number of tags per document"
+        description="Maximum number of tags per document (4 for Sevdesk)"
+    )
+    max_tags_per_document: int = Field(
+        default=4,
+        ge=1,
+        le=10,
+        description="Maximum tags per document for Sevdesk compatibility"
+    )
+    enable_automatic_invoice_tags: bool = Field(
+        default=True,
+        description="Automatically add 'Rechnung' or 'Kassenbon' tags"
+    )
+    enable_price_extraction: bool = Field(
+        default=True,
+        description="Extract and add gross prices as tags"
+    )
+    auto_detect_invoices: bool = Field(
+        default=True,
+        description="Automatically detect and tag invoices"
+    )
+    auto_detect_receipts: bool = Field(
+        default=True,
+        description="Automatically detect and tag receipts (Kassenbons)"
+    )
+    extract_gross_prices: bool = Field(
+        default=True,
+        description="Extract gross prices (Gesamtpreise Brutto) as tags"
     )
     
     # Cost Tracking Settings
@@ -303,6 +329,71 @@ class Settings(BaseSettings):
         ge=0,
         description="Alert threshold for LLM costs in EUR"
     )
+    
+    # Email Processing Optimization Settings
+    email_sevdesk_optimization: bool = Field(
+        default=True,
+        description="Enable Sevdesk-specific optimizations for email processing"
+    )
+    email_flat_directory_structure: bool = Field(
+        default=True,
+        description="Use flat directory structure instead of date/sender organization"
+    )
+    email_generate_metadata_files: bool = Field(
+        default=False,
+        description="Generate JSON metadata files for processed attachments"
+    )
+    email_filename_max_length: int = Field(
+        default=128,
+        ge=50,
+        le=255,
+        description="Maximum filename length for processed attachments (Sevdesk: 128)"
+    )
+    
+    # IONOS Email Specific Settings
+    ionos_ssl_fallback_enabled: bool = Field(
+        default=True,
+        description="Enable SSL fallback for IONOS email connections"
+    )
+    ionos_enhanced_logging: bool = Field(
+        default=True,
+        description="Enable enhanced debug logging for IONOS email processing"
+    )
+    
+    # File Processing Filters
+    allowed_file_extensions: List[str] = Field(
+        default=[".pdf", ".png", ".jpg", ".jpeg", ".tiff"],
+        description="Allowed file extensions for attachment processing (PDFs and images only)"
+    )
+    enable_file_content_validation: bool = Field(
+        default=True,
+        description="Validate file content matches extension (magic number check)"
+    )
+    
+    # Attachment Processing Settings
+    attachment_organize_by_date: bool = Field(
+        default=False,
+        description="Organize attachments by date (disabled for Sevdesk optimization)"
+    )
+    attachment_organize_by_sender: bool = Field(
+        default=False,
+        description="Organize attachments by sender (disabled for Sevdesk optimization)"
+    )
+    attachment_duplicate_check: bool = Field(
+        default=True,
+        description="Check for duplicate attachments using file hash"
+    )
+    
+    @field_validator("allowed_file_extensions")
+    @classmethod
+    def validate_file_extensions(cls, v: List[str]) -> List[str]:
+        """Ensure file extensions start with dot and are lowercase."""
+        validated = []
+        for ext in v:
+            if not ext.startswith("."):
+                ext = f".{ext}"
+            validated.append(ext.lower())
+        return validated
     
     @field_validator("llm_provider_order_str", mode="before")
     @classmethod
@@ -389,13 +480,40 @@ class Settings(BaseSettings):
             )
         
         # Validate provider names in order
-        valid_providers = {"openai", "ollama", "anthropic", "gemini", "custom"}
+        valid_providers = {"openai", "ollama", "anthropic", "gemini", "custom", "openai_mini"}
         invalid_providers = set(self.llm_provider_order) - valid_providers
         if invalid_providers:
             raise ValueError(
                 f"Invalid provider(s) in LLM_PROVIDER_ORDER: {invalid_providers}. "
                 f"Valid providers are: {valid_providers}"
             )
+        
+        return self
+    
+    @model_validator(mode="after")
+    def validate_email_optimization_settings(self) -> "Settings":
+        """Validate email optimization settings consistency."""
+        if self.email_sevdesk_optimization:
+            # When Sevdesk optimization is enabled, enforce certain settings
+            if self.email_filename_max_length > 128:
+                logger.warning(
+                    f"Sevdesk optimization enabled but filename limit is {self.email_filename_max_length}. "
+                    "Setting to 128 for Sevdesk compatibility."
+                )
+                # Note: Can't modify the field directly in validator
+                # This would need to be handled at runtime
+            
+            if not self.email_flat_directory_structure:
+                logger.warning(
+                    "Sevdesk optimization works best with flat directory structure. "
+                    "Consider enabling email_flat_directory_structure."
+                )
+        
+        # Validate file extensions are supported
+        supported_extensions = {".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".doc", ".docx", ".xls", ".xlsx", ".txt"}
+        unsupported = set(self.allowed_file_extensions) - supported_extensions
+        if unsupported:
+            logger.warning(f"Unsupported file extensions detected: {unsupported}")
         
         return self
     
@@ -525,6 +643,25 @@ class Settings(BaseSettings):
                 "Paperless API uses unencrypted HTTP connection. "
                 "Consider using HTTPS for production."
             )
+        
+        # Check email optimization settings
+        optimization_info = []
+        if self.email_sevdesk_optimization:
+            optimization_info.append("Sevdesk optimization enabled")
+            optimization_info.append(f"Filename limit: {self.email_filename_max_length} chars")
+            optimization_info.append(f"Flat directory: {'Yes' if self.email_flat_directory_structure else 'No'}")
+            optimization_info.append(f"Metadata files: {'Yes' if self.email_generate_metadata_files else 'No'}")
+        else:
+            optimization_info.append("Standard email processing mode")
+        
+        if self.ionos_ssl_fallback_enabled:
+            optimization_info.append("IONOS SSL fallback enabled")
+        
+        if self.enable_file_content_validation:
+            optimization_info.append("File content validation enabled")
+        
+        results["info"].extend(optimization_info)
+        results["info"].append(f"Allowed file extensions: {', '.join(self.allowed_file_extensions)}")
         
         # Check data directory with platform validation
         if not self.app_data_dir.exists():

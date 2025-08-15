@@ -380,6 +380,8 @@ class DocumentMetadataError(DocumentError):
     """Exception for document metadata errors."""
     
     def __init__(self, document_id: int, metadata_errors: Dict[str, Any], **kwargs):
+        # Remove error_code from kwargs if present to avoid duplicate
+        kwargs.pop('error_code', None)
         super().__init__(
             message=f"Invalid metadata for document {document_id}",
             error_code=ErrorCode.DOCUMENT_METADATA_INVALID,

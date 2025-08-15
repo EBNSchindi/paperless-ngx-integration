@@ -328,6 +328,129 @@ def normalize_path_separators(path: str) -> str:
     return str(normalized)
 
 
+def optimize_filename_for_sevdesk(
+    filename: str,
+    max_length: int = 128,
+    preserve_extension: bool = True
+) -> str:
+    """Optimize filename for Sevdesk compatibility with 128 character limit.
+    
+    Sevdesk has a strict 128 character limit for filenames. This function
+    ensures filenames are truncated appropriately while preserving readability.
+    
+    Args:
+        filename: Original filename
+        max_length: Maximum allowed filename length (default: 128 for Sevdesk)
+        preserve_extension: Whether to preserve file extension
+        
+    Returns:
+        Optimized filename that fits within Sevdesk limits
+    """
+    if not filename:
+        return "document.pdf"
+    
+    # Use pathlib for reliable extension handling
+    file_path = Path(filename)
+    if preserve_extension and file_path.suffix:
+        base_name = file_path.stem
+        extension = file_path.suffix.lower()
+    else:
+        base_name = filename
+        extension = ""
+    
+    # Clean the base name
+    base_name = replace_umlauts(base_name)
+    base_name = remove_special_characters(base_name, keep_chars="_-")
+    
+    # Calculate available space for base name
+    available_length = max_length - len(extension)
+    
+    if len(base_name) <= available_length:
+        # Filename is already within limits
+        result = base_name + extension
+    else:
+        # Need to truncate intelligently
+        # Try to preserve meaningful parts of the filename
+        
+        # Split by common separators to identify meaningful parts
+        parts = re.split(r'[_\-\s]+', base_name)
+        
+        if len(parts) > 1:
+            # Try to keep the most important parts
+            # Priority: date patterns, sender info, document type
+            important_parts = []
+            remaining_length = available_length
+            
+            # Look for date patterns first (highest priority)
+            date_parts = [p for p in parts if re.match(r'\d{4}.*\d{2}.*\d{2}', p)]
+            for part in date_parts:
+                if len(part) + 1 <= remaining_length:  # +1 for separator
+                    important_parts.append(part)
+                    remaining_length -= len(part) + 1
+            
+            # Add other parts in order of importance
+            other_parts = [p for p in parts if p not in date_parts and len(p) > 2]
+            for part in other_parts:
+                if len(part) + 1 <= remaining_length:
+                    important_parts.append(part)
+                    remaining_length -= len(part) + 1
+                elif remaining_length > 5:  # Keep partial part if enough space
+                    truncated_part = part[:remaining_length - 1]
+                    important_parts.append(truncated_part)
+                    break
+            
+            if important_parts:
+                base_name = "_".join(important_parts)
+            else:
+                # Fallback: simple truncation
+                base_name = base_name[:available_length]
+        else:
+            # Single part filename - simple truncation
+            base_name = base_name[:available_length]
+        
+        result = base_name + extension
+    
+    # Final validation and cleanup
+    result = result.strip("_-.")
+    if not result or result == extension:
+        result = f"document{extension}"
+    
+    # Ensure we're within the limit
+    if len(result) > max_length:
+        available_for_base = max_length - len(extension)
+        base_name = result[:available_for_base].rstrip("_-.")
+        result = base_name + extension
+    
+    return result
+
+
+def validate_sevdesk_filename(filename: str) -> Tuple[bool, Optional[str]]:
+    """Validate filename for Sevdesk compatibility.
+    
+    Args:
+        filename: Filename to validate
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    # First run standard validation
+    is_valid, error = validate_filename(filename)
+    if not is_valid:
+        return is_valid, error
+    
+    # Sevdesk-specific checks
+    if len(filename) > 128:
+        return False, f"Filename too long for Sevdesk ({len(filename)} > 128 characters)"
+    
+    # Check for problematic characters that might cause issues in Sevdesk
+    problematic_chars = ['ä', 'ö', 'ü', 'Ä', 'Ö', 'Ü', 'ß', '€', '§']
+    for char in problematic_chars:
+        if char in filename:
+            return False, f"Filename contains umlaut/special character that should be replaced: {char}"
+    
+    return True, None
+
+
 def validate_filename(filename: str) -> Tuple[bool, Optional[str]]:
     """Validate if filename is safe for filesystem.
     

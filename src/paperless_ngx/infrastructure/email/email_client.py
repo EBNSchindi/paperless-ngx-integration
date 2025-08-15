@@ -26,6 +26,7 @@ from ...domain.utilities.filename_utils import (
     format_email_attachment_filename,
     create_unique_filename,
     sanitize_filename,
+    optimize_filename_for_sevdesk,
 )
 from ..platform import get_platform_service
 from .email_config import EmailAccount, EmailSettings
@@ -46,12 +47,13 @@ class EmailAttachment:
     email_sender: str
     email_date: datetime
     
-    def save_to_disk(self, directory: Path, use_custom_name: bool = True) -> Path:
-        """Save attachment to disk with platform-aware handling.
+    def save_to_disk(self, directory: Path, use_custom_name: bool = True, sevdesk_optimization: bool = True) -> Path:
+        """Save attachment to disk with platform-aware handling and Sevdesk optimization.
         
         Args:
             directory: Directory to save attachment
             use_custom_name: Whether to use custom naming pattern
+            sevdesk_optimization: Whether to apply Sevdesk 128-character limit
             
         Returns:
             Path to saved file
@@ -68,6 +70,11 @@ class EmailAttachment:
             )
         else:
             filename = sanitize_filename(self.filename)
+        
+        # Apply Sevdesk optimization if enabled
+        if sevdesk_optimization:
+            filename = optimize_filename_for_sevdesk(filename, max_length=128)
+            logger.debug(f"Applied Sevdesk optimization: {self.filename} -> {filename}")
         
         # Platform-specific filename sanitization
         filename = platform.sanitize_filename(filename)
@@ -131,36 +138,78 @@ class IMAPEmailClient:
         self._processed_uids: Set[str] = set()
     
     def connect(self) -> None:
-        """Establish IMAP connection."""
+        """Establish IMAP connection with provider-specific optimizations."""
         try:
-            # Create SSL context
+            # Create SSL context with provider-specific settings
             context = ssl.create_default_context()
             
-            # For Gmail, might need special handling
+            # Provider-specific SSL and connection handling
             if self.account.provider == "gmail":
-                # Gmail requires SSL
+                # Gmail requires SSL with standard settings
+                logger.debug(f"Setting up Gmail SSL connection for {self.account.name}")
                 self.connection = imaplib.IMAP4_SSL(
                     self.account.imap_server,
                     self.account.imap_port,
                     ssl_context=context
                 )
+            elif self.account.provider == "ionos":
+                # IONOS-specific SSL context configuration
+                logger.debug(f"Setting up IONOS SSL connection for {self.account.name}")
+                
+                # Enhanced SSL context for IONOS compatibility
+                context.check_hostname = True
+                context.verify_mode = ssl.CERT_REQUIRED
+                
+                # Allow legacy server configurations
+                context.set_ciphers('DEFAULT@SECLEVEL=1')
+                
+                # IONOS may need additional SSL options
+                try:
+                    self.connection = imaplib.IMAP4_SSL(
+                        self.account.imap_server,
+                        self.account.imap_port,
+                        ssl_context=context
+                    )
+                    logger.debug(f"IONOS SSL connection established for {self.account.name}")
+                except ssl.SSLError as ssl_err:
+                    logger.warning(f"IONOS SSL error: {ssl_err}. Trying fallback SSL settings...")
+                    
+                    # Fallback: More permissive SSL context for IONOS
+                    fallback_context = ssl.create_default_context()
+                    fallback_context.check_hostname = False
+                    fallback_context.verify_mode = ssl.CERT_NONE
+                    
+                    self.connection = imaplib.IMAP4_SSL(
+                        self.account.imap_server,
+                        self.account.imap_port,
+                        ssl_context=fallback_context
+                    )
+                    logger.info(f"IONOS connection using fallback SSL settings for {self.account.name}")
             else:
-                # Generic IMAP SSL connection
+                # Generic IMAP SSL connection for other providers
+                logger.debug(f"Setting up generic SSL connection for {self.account.provider}")
                 self.connection = imaplib.IMAP4_SSL(
                     self.account.imap_server,
                     self.account.imap_port,
                     ssl_context=context
                 )
             
-            # Login
-            self.connection.login(self.account.email, self.account.password)
-            logger.info(f"Connected to {self.account.name} ({self.account.email})")
+            # Login with enhanced error reporting
+            try:
+                self.connection.login(self.account.email, self.account.password)
+                logger.info(f"Successfully connected to {self.account.name} ({self.account.email})")
+            except imaplib.IMAP4.error as login_err:
+                logger.error(f"Login failed for {self.account.name}: {login_err}")
+                logger.debug(f"Server: {self.account.imap_server}:{self.account.imap_port}")
+                raise
             
         except imaplib.IMAP4.error as e:
             logger.error(f"IMAP connection failed for {self.account.name}: {e}")
+            logger.debug(f"Connection details - Server: {self.account.imap_server}, Port: {self.account.imap_port}, Provider: {self.account.provider}")
             raise
         except Exception as e:
             logger.error(f"Unexpected error connecting to {self.account.name}: {e}")
+            logger.debug(f"Error type: {type(e).__name__}, Provider: {self.account.provider}")
             raise
     
     def disconnect(self) -> None:
@@ -384,7 +433,7 @@ class IMAPEmailClient:
         sender: str,
         date: datetime
     ) -> List[EmailAttachment]:
-        """Extract attachments from email.
+        """Extract attachments from email with enhanced error logging.
         
         Args:
             msg: Email message
@@ -397,58 +446,148 @@ class IMAPEmailClient:
             List of EmailAttachment objects
         """
         attachments = []
+        part_count = 0
+        
+        logger.debug(f"Extracting attachments from email {uid} ({sender})")
         
         for part in msg.walk():
+            part_count += 1
             content_disposition = str(part.get("Content-Disposition", ""))
+            content_type = part.get_content_type()
+            
+            logger.debug(f"Processing part {part_count}: type={content_type}, disposition={content_disposition}")
             
             if "attachment" not in content_disposition:
-                continue
+                # Also check for inline files that might be attachments
+                if "inline" in content_disposition and content_type.startswith(("application/", "image/")):
+                    logger.debug(f"Found inline attachment candidate: {content_type}")
+                else:
+                    continue
             
-            # Get filename
+            # Get filename with enhanced error handling
             filename = part.get_filename()
             if not filename:
-                continue
+                # Try to get filename from Content-Type or other headers
+                content_type_header = part.get("Content-Type", "")
+                if "name=" in content_type_header:
+                    try:
+                        filename = content_type_header.split("name=")[1].split(";")[0].strip('"')
+                        logger.debug(f"Extracted filename from Content-Type: {filename}")
+                    except Exception as e:
+                        logger.debug(f"Failed to extract filename from Content-Type: {e}")
+                
+                if not filename:
+                    logger.debug(f"No filename found for part {part_count}, skipping")
+                    continue
             
-            # Decode filename if needed
-            filename = self._decode_header(filename)
-            
-            # Check extension
-            file_ext = Path(filename).suffix.lower()
-            if file_ext not in self.settings.allowed_extensions:
-                logger.debug(f"Skipping attachment {filename} - extension not allowed")
-                continue
-            
-            # Get content with proper error handling
+            # Decode filename if needed with error handling
             try:
+                original_filename = filename
+                filename = self._decode_header(filename)
+                if filename != original_filename:
+                    logger.debug(f"Decoded filename: {original_filename} -> {filename}")
+            except Exception as e:
+                logger.warning(f"Error decoding filename '{filename}': {e}")
+                # Use original filename if decoding fails
+                pass
+            
+            # Check extension with enhanced logging
+            file_ext = Path(filename).suffix.lower()
+            logger.debug(f"Checking extension '{file_ext}' for file: {filename}")
+            
+            if file_ext not in self.settings.allowed_extensions:
+                logger.debug(f"Skipping attachment {filename} - extension '{file_ext}' not in allowed list: {self.settings.allowed_extensions}")
+                continue
+            
+            # Get content with comprehensive error handling
+            try:
+                logger.debug(f"Attempting to extract content for: {filename}")
                 content = part.get_payload(decode=True)
+                
                 if not content:
-                    logger.debug(f"Empty content for attachment {filename}")
+                    logger.warning(f"Empty content for attachment {filename} (UID: {uid})")
                     continue
                 
+                content_size = len(content)
+                logger.debug(f"Successfully extracted {content_size} bytes for: {filename}")
+                
                 # Check size
-                if len(content) > self.settings.max_attachment_size:
+                if content_size > self.settings.max_attachment_size:
                     logger.warning(
                         f"Skipping attachment {filename} - "
-                        f"size {len(content)} exceeds limit {self.settings.max_attachment_size}"
+                        f"size {content_size} exceeds limit {self.settings.max_attachment_size}"
                     )
+                    continue
+                
+                # Validate content (basic check for PDF/image headers)
+                is_valid_content = self._validate_attachment_content(content, file_ext, filename)
+                if not is_valid_content:
+                    logger.warning(f"Skipping attachment {filename} - content validation failed")
                     continue
                 
                 attachment = EmailAttachment(
                     filename=filename,
                     content=content,
-                    content_type=part.get_content_type(),
-                    size=len(content),
+                    content_type=content_type,
+                    size=content_size,
                     email_uid=uid,
                     email_subject=subject,
                     email_sender=sender,
                     email_date=date
                 )
                 attachments.append(attachment)
+                logger.info(f"Successfully extracted attachment: {filename} ({content_size} bytes)")
                 
             except Exception as e:
-                logger.error(f"Error extracting attachment {filename}: {e}")
+                logger.error(f"Error extracting attachment {filename} from email {uid}: {e}")
+                logger.debug(f"Error details - Content-Type: {content_type}, Size estimate: {len(str(part))}")
+                # Continue processing other attachments even if one fails
+                continue
         
+        logger.info(f"Extracted {len(attachments)} attachments from email {uid} (processed {part_count} parts)")
         return attachments
+    
+    def _validate_attachment_content(self, content: bytes, file_ext: str, filename: str) -> bool:
+        """Validate attachment content based on file extension.
+        
+        Args:
+            content: File content bytes
+            file_ext: File extension (lowercase)
+            filename: Original filename for logging
+            
+        Returns:
+            True if content appears valid for the file type
+        """
+        if not content or len(content) < 4:
+            logger.debug(f"Content too small for {filename}: {len(content)} bytes")
+            return False
+        
+        # Check file signatures (magic numbers)
+        header = content[:8]
+        
+        if file_ext == ".pdf":
+            # PDF files start with %PDF
+            if not header.startswith(b"%PDF"):
+                logger.debug(f"PDF validation failed for {filename}: invalid header")
+                return False
+        elif file_ext in [".jpg", ".jpeg"]:
+            # JPEG files start with FFD8
+            if not header.startswith(b"\xff\xd8"):
+                logger.debug(f"JPEG validation failed for {filename}: invalid header")
+                return False
+        elif file_ext == ".png":
+            # PNG files start with specific signature
+            if not header.startswith(b"\x89PNG\r\n\x1a\n"):
+                logger.debug(f"PNG validation failed for {filename}: invalid header")
+                return False
+        elif file_ext == ".tiff":
+            # TIFF files start with II or MM
+            if not (header.startswith(b"II*\x00") or header.startswith(b"MM\x00*")):
+                logger.debug(f"TIFF validation failed for {filename}: invalid header")
+                return False
+        
+        logger.debug(f"Content validation passed for {filename}")
+        return True
     
     def mark_as_read(self, uid: str) -> bool:
         """Mark email as read.
@@ -620,3 +759,55 @@ class IMAPEmailClient:
         except Exception as e:
             logger.error(f"Connection test failed for {self.account.name}: {e}")
             return False
+
+
+class EmailClient:
+    """Backward compatibility wrapper for EmailClient.
+    
+    This class provides backward compatibility for existing tests and code
+    that expect the original EmailClient interface.
+    """
+    
+    def __init__(self, account: EmailAccount, settings: EmailSettings):
+        """Initialize EmailClient wrapper.
+        
+        Args:
+            account: Email account configuration
+            settings: Email processing settings
+        """
+        self.client = IMAPEmailClient(account, settings)
+        self.account = account
+        self.settings = settings
+    
+    def __getattr__(self, name):
+        """Delegate all other methods to the underlying IMAPEmailClient."""
+        return getattr(self.client, name)
+    
+    def connect(self) -> None:
+        """Connect to email server."""
+        return self.client.connect()
+    
+    def disconnect(self) -> None:
+        """Disconnect from email server."""
+        return self.client.disconnect()
+    
+    def test_connection(self) -> bool:
+        """Test email connection."""
+        return self.client.test_connection()
+    
+    def download_attachments(
+        self,
+        download_dir: Path,
+        since_date: Optional[datetime] = None,
+        mark_processed: bool = True,
+        delete_after: bool = False,
+        dry_run: bool = False
+    ) -> List[Path]:
+        """Download attachments from emails."""
+        return self.client.download_attachments(
+            download_dir=download_dir,
+            since_date=since_date,
+            mark_processed=mark_processed,
+            delete_after=delete_after,
+            dry_run=dry_run
+        )

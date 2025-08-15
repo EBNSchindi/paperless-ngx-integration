@@ -61,10 +61,10 @@ class EmailSettings(BaseModel):
         description="Database file to track processed emails"
     )
     
-    # Attachment filters
+    # Attachment filters - Only PDFs and images for Sevdesk optimization
     allowed_extensions: List[str] = Field(
-        default=[".pdf", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".tiff", ".txt"],
-        description="Allowed file extensions for attachments"
+        default=[".pdf", ".png", ".jpg", ".jpeg", ".tiff"],
+        description="Allowed file extensions for attachments (PDFs and images only)"
     )
     
     max_attachment_size: int = Field(

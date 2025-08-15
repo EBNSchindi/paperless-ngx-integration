@@ -20,6 +20,7 @@ from ...domain.utilities.filename_utils import (
     sanitize_filename,
 )
 from ...infrastructure.email import EmailAttachment
+from ...infrastructure.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -71,25 +72,29 @@ class AttachmentProcessor:
     def __init__(
         self,
         base_dir: Path,
-        organize_by_date: bool = True,
+        organize_by_date: bool = False,
         organize_by_sender: bool = False,
-        duplicate_check: bool = True
+        duplicate_check: bool = True,
+        generate_metadata_files: bool = False
     ):
         """Initialize attachment processor.
         
         Args:
             base_dir: Base directory for organized attachments
-            organize_by_date: Create date-based folder hierarchy
-            organize_by_sender: Create sender-based folder hierarchy
+            organize_by_date: Create date-based folder hierarchy (disabled for Sevdesk)
+            organize_by_sender: Create sender-based folder hierarchy (disabled for Sevdesk)
             duplicate_check: Check for duplicate files
+            generate_metadata_files: Generate JSON metadata files (disabled for Sevdesk)
         """
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.organize_by_date = organize_by_date
         self.organize_by_sender = organize_by_sender
         self.duplicate_check = duplicate_check
+        self.generate_metadata_files = generate_metadata_files
         self._processed_hashes: Set[str] = set()
         self._load_processed_hashes()
+        self.settings = get_settings()
     
     def _load_processed_hashes(self) -> None:
         """Load previously processed file hashes."""
@@ -190,67 +195,163 @@ class AttachmentProcessor:
         
         return None
     
-    def _generate_tags(self, attachment: EmailAttachment, doc_type: Optional[str]) -> List[str]:
-        """Generate tags for document.
+    def _generate_tags(self, attachment: EmailAttachment, doc_type: Optional[str], extracted_prices: List[str] = None) -> List[str]:
+        """Generate tags for document with Sevdesk optimization.
+        
+        Implements intelligent tag generation with priority:
+        1. Document type (Rechnung/Kassenbon)
+        2. Price information (Gesamtpreise Brutto)
+        3. Year
+        4. Sender/Domain information
         
         Args:
             attachment: Email attachment
             doc_type: Document type
+            extracted_prices: List of extracted gross prices from document
             
         Returns:
-            List of tags
+            List of tags (maximum 4 for Sevdesk compatibility)
         """
         tags = []
+        max_tags = getattr(self.settings, 'max_tags_per_document', 4)  # Default to 4 for Sevdesk
         
-        # Add year tag
-        year = attachment.email_date.year
-        tags.append(str(year))
-        
-        # Add month tag
-        month_name = attachment.email_date.strftime("%B")
-        tags.append(month_name)
-        
-        # Add document type as tag if available
+        # Priority 1: Document type tags (Rechnung/Kassenbon detection)
         if doc_type:
-            tags.append(doc_type)
+            # Always add Rechnung or Kassenbon as first tag if detected
+            if self._is_invoice_type(doc_type, attachment):
+                tags.append("Rechnung")
+            elif self._is_receipt_type(doc_type, attachment):
+                tags.append("Kassenbon")
+            elif doc_type not in ["Rechnung", "Kassenbon"]:
+                tags.append(doc_type)
         
-        # Add sender domain as tag
-        if "@" in attachment.email_sender:
-            domain = attachment.email_sender.split("@")[1].split(">")[0]
+        # Priority 2: Price tags (Gesamtpreise Brutto)
+        if extracted_prices and len(tags) < max_tags:
+            # Add the main price as a tag (e.g., "123,45€")
+            for price in extracted_prices[:1]:  # Only add first/main price
+                if len(tags) < max_tags:
+                    # Format price for tag (remove spaces, ensure proper format)
+                    price_tag = self._format_price_tag(price)
+                    if price_tag:
+                        tags.append(price_tag)
+        
+        # Priority 3: Year tag
+        if len(tags) < max_tags:
+            year = str(attachment.email_date.year)
+            tags.append(year)
+        
+        # Priority 4: Sender/Domain tag
+        if len(tags) < max_tags:
+            sender_tag = self._extract_sender_tag(attachment.email_sender)
+            if sender_tag:
+                tags.append(sender_tag)
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_tags = []
+        for tag in tags:
+            if tag not in seen:
+                seen.add(tag)
+                unique_tags.append(tag)
+        
+        # Limit to max_tags (default 4 for Sevdesk)
+        return unique_tags[:max_tags]
+    
+    def _is_invoice_type(self, doc_type: str, attachment: EmailAttachment) -> bool:
+        """Check if document is an invoice type.
+        
+        Args:
+            doc_type: Detected document type
+            attachment: Email attachment
+            
+        Returns:
+            True if document is an invoice
+        """
+        invoice_indicators = [
+            "rechnung", "invoice", "bill", "abrechnung", 
+            "faktura", "quittung", "zahlungsbeleg"
+        ]
+        
+        # Check document type
+        if doc_type and any(indicator in doc_type.lower() for indicator in invoice_indicators):
+            return True
+        
+        # Check filename and subject
+        combined = f"{attachment.filename} {attachment.email_subject}".lower()
+        return any(indicator in combined for indicator in invoice_indicators)
+    
+    def _is_receipt_type(self, doc_type: str, attachment: EmailAttachment) -> bool:
+        """Check if document is a receipt/Kassenbon type.
+        
+        Args:
+            doc_type: Detected document type
+            attachment: Email attachment
+            
+        Returns:
+            True if document is a receipt
+        """
+        receipt_indicators = [
+            "kassenbon", "kassenzettel", "beleg", "bon", 
+            "receipt", "kassenschein", "kassenbeleg"
+        ]
+        
+        # Check document type
+        if doc_type and any(indicator in doc_type.lower() for indicator in receipt_indicators):
+            return True
+        
+        # Check filename and subject
+        combined = f"{attachment.filename} {attachment.email_subject}".lower()
+        return any(indicator in combined for indicator in receipt_indicators)
+    
+    def _format_price_tag(self, price: str) -> Optional[str]:
+        """Format price string as tag.
+        
+        Args:
+            price: Price string (e.g., "123,45 EUR", "€123.45")
+            
+        Returns:
+            Formatted price tag or None
+        """
+        try:
+            # Extract numeric value
+            import re
+            numbers = re.findall(r'\d+[,.]?\d*', price)
+            if numbers:
+                # Take the first number found
+                price_num = numbers[0].replace(',', '.')
+                # Format as German currency
+                return f"{price_num.replace('.', ',')}€"
+        except Exception:
+            pass
+        return None
+    
+    def _extract_sender_tag(self, email_sender: str) -> Optional[str]:
+        """Extract meaningful sender tag.
+        
+        Args:
+            email_sender: Email sender string
+            
+        Returns:
+            Sender tag or None
+        """
+        # Extract domain or sender name
+        if "@" in email_sender:
+            domain = email_sender.split("@")[1].split(">")[0]
             domain_name = domain.split(".")[0]
-            if domain_name and domain_name not in ["gmail", "outlook", "yahoo", "gmx", "web"]:
-                tags.append(domain_name)
+            
+            # Skip generic email providers
+            if domain_name and domain_name not in ["gmail", "outlook", "yahoo", "gmx", "web", "mail", "email"]:
+                # Capitalize first letter
+                return domain_name.capitalize()
         
-        # Add file type tag
-        file_ext = Path(attachment.filename).suffix.lower()
-        if file_ext == ".pdf":
-            tags.append("PDF")
-        elif file_ext in [".doc", ".docx"]:
-            tags.append("Word")
-        elif file_ext in [".xls", ".xlsx"]:
-            tags.append("Excel")
-        elif file_ext in [".jpg", ".jpeg", ".png", ".tiff"]:
-            tags.append("Bild")
+        # Try to extract name from "Name <email>" format
+        if "<" in email_sender:
+            name = email_sender.split("<")[0].strip()
+            if name and len(name) < 20:  # Reasonable length for a tag
+                # Take first word or company name
+                return name.split()[0] if " " in name else name
         
-        # Check for keywords in subject
-        subject_lower = attachment.email_subject.lower()
-        keyword_tags = {
-            "wichtig": "Wichtig",
-            "urgent": "Dringend",
-            "erinnerung": "Erinnerung",
-            "mahnung": "Mahnung",
-            "frist": "Frist",
-            "termin": "Termin",
-        }
-        
-        for keyword, tag in keyword_tags.items():
-            if keyword in subject_lower:
-                tags.append(tag)
-        
-        # Remove duplicates and limit
-        tags = list(dict.fromkeys(tags))[:7]
-        
-        return tags
+        return None
     
     def _create_description(self, attachment: EmailAttachment, doc_type: Optional[str]) -> str:
         """Create document description.
@@ -286,6 +387,8 @@ class AttachmentProcessor:
     def _get_target_directory(self, attachment: EmailAttachment) -> Path:
         """Get target directory for attachment based on organization settings.
         
+        Sevdesk optimization: Uses flat directory structure for simplified processing.
+        
         Args:
             attachment: Email attachment
             
@@ -294,14 +397,15 @@ class AttachmentProcessor:
         """
         target_dir = self.base_dir
         
+        # Sevdesk optimization: Flat directory structure by default
         if self.organize_by_date:
-            # Organize by year/month
+            # Only organize by date if explicitly enabled
             year = attachment.email_date.strftime("%Y")
             month = attachment.email_date.strftime("%m-%B")
             target_dir = target_dir / year / month
         
         if self.organize_by_sender:
-            # Organize by sender
+            # Only organize by sender if explicitly enabled
             correspondent = self._extract_correspondent(attachment.email_sender)
             sender_dir = sanitize_filename(correspondent, preserve_extension=False)
             target_dir = target_dir / sender_dir
@@ -374,8 +478,9 @@ class AttachmentProcessor:
         self._processed_hashes.add(file_hash)
         self._save_processed_hashes()
         
-        # Save metadata
-        self._save_attachment_metadata(processed)
+        # Save metadata only if enabled (disabled for Sevdesk optimization)
+        if self.generate_metadata_files:
+            self._save_attachment_metadata(processed)
         
         logger.info(f"Processed attachment: {processed.processed_filename}")
         
@@ -384,13 +489,20 @@ class AttachmentProcessor:
     def _save_attachment_metadata(self, processed: ProcessedAttachment) -> None:
         """Save attachment metadata to JSON file.
         
+        Note: Disabled by default for Sevdesk optimization.
+        
         Args:
             processed: Processed attachment
         """
+        if not self.generate_metadata_files:
+            logger.debug("Metadata file generation disabled for Sevdesk optimization")
+            return
+            
         metadata_file = processed.file_path.with_suffix(".metadata.json")
         try:
             with open(metadata_file, "w", encoding="utf-8") as f:
                 json.dump(processed.to_dict(), f, indent=2, ensure_ascii=False)
+            logger.debug(f"Saved metadata file: {metadata_file}")
         except Exception as e:
             logger.error(f"Error saving metadata: {e}")
     

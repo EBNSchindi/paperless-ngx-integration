@@ -357,6 +357,18 @@ git push origin feature/amazing-feature
 - **Tests**: Minimum 80% coverage for new code
 - **Security**: No credentials in code
 
+### Development with Personal Agents
+This project includes specialized development agents in `.claude/agents/`:
+- **researcher**: Requirements analysis and research
+- **architect-cleaner**: Architecture validation
+- **python-generator**: Code generation
+- **test-engineer**: Test creation
+- **code-reviewer**: Code review
+- **doc-writer**: Documentation
+- **security-engineer**: Security analysis
+
+See [Agent Usage Guide](docs/development/AGENT_USAGE.md) for details.
+
 ## Troubleshooting
 
 ### Common Issues

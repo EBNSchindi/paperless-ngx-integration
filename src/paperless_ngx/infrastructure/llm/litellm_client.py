@@ -216,15 +216,30 @@ class LiteLLMClient:
         
         # Build configurations for each enabled provider
         if self.settings.openai_enabled and self.settings.openai_api_key:
+            # Models that support JSON response format
+            json_supported_models = [
+                "gpt-4-turbo-preview", "gpt-4-turbo", "gpt-4o", "gpt-4o-mini",
+                "gpt-3.5-turbo-1106", "gpt-3.5-turbo-0125", "gpt-3.5-turbo"
+            ]
+            
+            base_params = {
+                "model": self.settings.openai_model,
+                "api_key": self.settings.get_secret_value("openai_api_key"),
+                "timeout": self.settings.openai_timeout,
+                "max_tokens": self.settings.openai_max_tokens,
+                "temperature": self.settings.openai_temperature,
+                "stream": False,
+            }
+            
+            # Only add response_format for supported models
+            if any(model in self.settings.openai_model for model in json_supported_models):
+                base_params["response_format"] = {"type": "json_object"}
+                logger.info(f"JSON response format enabled for {self.settings.openai_model}")
+            else:
+                logger.warning(f"Model {self.settings.openai_model} may not support JSON format")
+            
             provider_models["openai"] = {
-                "litellm_params": {
-                    "model": self.settings.openai_model,
-                    "api_key": self.settings.get_secret_value("openai_api_key"),
-                    "timeout": self.settings.openai_timeout,
-                    "max_tokens": self.settings.openai_max_tokens,
-                    "temperature": self.settings.openai_temperature,
-                    "stream": False,
-                },
+                "litellm_params": base_params,
                 "model_info": {
                     "provider": ModelProvider.OPENAI.value,
                 }
@@ -287,7 +302,35 @@ class LiteLLMClient:
         
         # Build model list based on provider order
         for i, provider in enumerate(self.settings.llm_provider_order):
-            if provider in provider_models:
+            # Handle special case for openai_mini (third fallback with gpt-5-mini)
+            if provider == "openai_mini":
+                # Create a separate configuration for gpt-5-mini
+                if self.settings.openai_enabled and self.settings.openai_api_key:
+                    model_name = f"llm-{i+1}-openai-mini"
+                    # Check if fallback model supports JSON format
+                    json_supported = ["gpt-4", "gpt-3.5-turbo"]
+                    mini_params = {
+                        "model": "gpt-4o-mini",  # Use real model name
+                        "api_key": self.settings.get_secret_value("openai_api_key"),
+                        "timeout": self.settings.openai_timeout,
+                        "max_tokens": self.settings.openai_max_tokens,
+                        "temperature": self.settings.openai_temperature,
+                        "stream": False,
+                    }
+                    
+                    if any(m in "gpt-4o-mini" for m in json_supported):
+                        mini_params["response_format"] = {"type": "json_object"}
+                    
+                    model_config = {
+                        "model_name": model_name,
+                        "litellm_params": mini_params,
+                        "model_info": {
+                            "provider": ModelProvider.OPENAI.value,
+                            "priority": i + 1
+                        }
+                    }
+                    model_list.append(model_config)
+            elif provider in provider_models:
                 model_name = f"llm-{i+1}-{provider}"
                 model_config = {
                     "model_name": model_name,
@@ -302,15 +345,13 @@ class LiteLLMClient:
                 "are enabled and have API keys."
             )
         
-        # Build fallback chain based on order
+        # Build fallback chain based on order (LiteLLM expects list of single-key dicts)
         fallbacks = []
         if len(model_list) > 1:
-            fallback_chain = {}
             for i in range(len(model_list) - 1):
                 current_model = model_list[i]["model_name"]
                 next_models = [model_list[j]["model_name"] for j in range(i + 1, len(model_list))]
-                fallback_chain[current_model] = next_models
-            fallbacks = [fallback_chain]
+                fallbacks.append({current_model: next_models})
         
         # Create router with retry and fallback configuration
         router = Router(

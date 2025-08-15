@@ -31,7 +31,11 @@ logger = get_struct_logger(__name__)
 
 
 class MetadataExtractor(LoggingMixin):
-    """Extract metadata from document OCR text using LLMs."""
+    """Extract metadata from document OCR text using LLMs.
+    
+    Enhanced for Sevdesk integration with automatic invoice/receipt detection
+    and price extraction for tag generation.
+    """
     
     def __init__(self):
         """Initialize metadata extractor."""
@@ -39,6 +43,34 @@ class MetadataExtractor(LoggingMixin):
         self.llm_client = get_llm_client()
         self.default_recipient = self.settings.default_recipient
         self.recipient_address = self.settings.recipient_address
+        self.max_tags = getattr(self.settings, 'max_tags_per_document', 4)  # Sevdesk optimization
+        
+    def _truncate_text_for_llm(self, text: str, max_chars: int = 40000) -> str:
+        """Truncate text to fit within LLM context window.
+        
+        Args:
+            text: Input text to truncate
+            max_chars: Maximum characters (conservative estimate for 40k tokens)
+            
+        Returns:
+            Truncated text that fits within context window
+        """
+        if len(text) <= max_chars:
+            return text
+            
+        # Keep beginning and end for context
+        head_chars = int(max_chars * 0.7)  # 70% from beginning
+        tail_chars = int(max_chars * 0.25)  # 25% from end
+        
+        truncated = text[:head_chars] + "\n\n[... DOKUMENT GEKÜRZT ...]\n\n" + text[-tail_chars:]
+        
+        self.log_warning(
+            f"Text truncated from {len(text)} to {len(truncated)} characters",
+            original_length=len(text),
+            truncated_length=len(truncated)
+        )
+        
+        return truncated
         
     def _build_extraction_prompt(self, ocr_text: str) -> str:
         """Build the prompt for metadata extraction.
@@ -49,20 +81,24 @@ class MetadataExtractor(LoggingMixin):
         Returns:
             Formatted prompt for the LLM
         """
-        return f"""WICHTIG: Deine Antwort MUSS ein JSON-Objekt sein, KEINE Erklärungen oder Markdown!
+        return f"""Du bist ein JSON-Generator. Antworte NUR mit einem validen JSON-Objekt.
+KEINE Erklärungen, KEIN Text, NUR JSON. Beginne direkt mit {{ und ende mit }}.
+
+WICHTIG: Deine Antwort MUSS ein JSON-Objekt sein, KEINE Erklärungen oder Markdown!
 
 Analysiere den folgenden OCR-Text. Ich ({self.default_recipient}, {self.recipient_address}) bin der EMPFÄNGER, nicht der Absender des Dokuments.
 
 Extrahiere folgende Informationen:
 1. Korrespondent: Die absendende Organisation oder Person (der ABSENDER, NICHT der Empfänger).
-2. Dokumententyp: Präzise deutsche Bezeichnung (z.B. "Rechnung", "Angebot", "Versicherungspolice", "Steuerbescheid").
+2. Dokumententyp: Präzise deutsche Bezeichnung (z.B. "Rechnung", "Kassenbon", "Angebot", "Versicherungspolice", "Steuerbescheid").
 3. Dateiname: Format YYYY-MM-DD_Absender_Dokumententyp, verwende Unterstriche statt Leerzeichen.
-4. Tags: {self.settings.min_tags}-{self.settings.max_tags} präzise deutsche Schlagwörter, die den Inhalt kategorisieren und die Suche erleichtern.
+4. Tags: Maximal 4 präzise deutsche Schlagwörter. WICHTIG: Bei Rechnungen/Kassenbons IMMER "Rechnung" oder "Kassenbon" als ersten Tag.
 5. Zusammenfassung: Kurze, informative Beschreibung des Hauptinhalts (max. {self.settings.max_description_length} Zeichen).
+6. Gesamtpreis: Bei Rechnungen/Kassenbons den Brutto-Gesamtbetrag (z.B. "123,45€"). Leer lassen wenn kein Preis erkennbar.
 
 Wichtige Hinweise:
 - Der KORRESPONDENT ist IMMER der ABSENDER, NICHT {self.default_recipient.split('/')[0].strip()}.
-- Bei Rechnungen: Erfasse Rechnungsnummer, Betrag und relevante Produkte/Dienstleistungen in den Tags.
+- Bei Rechnungen/Kassenbons: IMMER "Rechnung" oder "Kassenbon" als ersten Tag. Erfasse den Gesamtbetrag als zweiten Tag.
 - Bei Behördendokumenten: Identifiziere die spezifische Behörde, z.B. "Finanzamt Karlsruhe" statt nur "Finanzamt".
 - Bei Versicherungen: Nenne den genauen Versicherungstyp und betroffene Versicherungsgegenstände.
 - Bei Bankdokumenten: Identifiziere die Bank und die Art der Mitteilung (Kontoauszug, Kreditinfo, etc.).
@@ -71,15 +107,16 @@ Wichtige Hinweise:
 - Wenn im Dokument ein Datum erkennbar ist, verwende dieses im Dateinamen (nicht das aktuelle Datum).
 
 DEINE ANTWORT MUSS EIN REINES JSON-OBJEKT sein mit den Schlüsseln:
-"correspondent", "document_type", "file_name", "tags", "description".
+"correspondent", "document_type", "file_name", "tags", "description", "total_price".
 
 Beispiel des erwarteten Formats:
 {{
   "correspondent": "Sparkasse Karlsruhe",
-  "document_type": "Kontoauszug",
-  "file_name": "2025-04-15_Sparkasse_Karlsruhe_Kontoauszug",
-  "tags": ["Konto", "Girokonto", "Bankgebühren", "Auszug", "April 2025"],
-  "description": "Kontoauszug April 2025 für Girokonto, Kontostand 1.234,56 EUR"
+  "document_type": "Rechnung",
+  "file_name": "2025-04-15_Sparkasse_Karlsruhe_Rechnung",
+  "tags": ["Rechnung", "56,78€", "2025", "Sparkasse"],
+  "description": "Rechnung für Kontoführungsgebühren April 2025",
+  "total_price": "56,78€"
 }}
 
 OCR-Text:
@@ -210,8 +247,11 @@ Beispiel eines erwarteten JSON-Formats:
                 ocr_text_length=len(ocr_text)
             )
             
+            # Truncate text if too long for LLM context window
+            truncated_text = self._truncate_text_for_llm(ocr_text)
+            
             # Build and send prompt to LLM
-            prompt = self._build_extraction_prompt(ocr_text)
+            prompt = self._build_extraction_prompt(truncated_text)
             
             try:
                 response, llm_metadata = self.llm_client.complete_sync(
