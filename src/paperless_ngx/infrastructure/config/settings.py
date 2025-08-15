@@ -86,22 +86,39 @@ class Settings(BaseSettings):
         description="Use LiteLLM for unified LLM interface"
     )
     
-    # LLM Provider Order Configuration (stored as string, parsed to list)
-    llm_provider_order_str: str = Field(
-        default="openai,ollama,anthropic",
-        description="Order in which to try LLM providers (comma-separated)",
-        alias="LLM_PROVIDER_ORDER"
-    )
-    
     @property
     def llm_provider_order(self) -> List[str]:
-        """Get provider order as list."""
-        return [p.strip() for p in self.llm_provider_order_str.split(",") if p.strip()]
+        """Get provider order based on rank values (lower rank = higher priority)."""
+        providers_with_rank = []
+        
+        # Collect enabled providers with their ranks
+        if self.openai_enabled:
+            providers_with_rank.append(("openai", self.openai_rank))
+        if self.ollama_enabled:
+            providers_with_rank.append(("ollama", self.ollama_rank))
+        if self.anthropic_enabled:
+            providers_with_rank.append(("anthropic", self.anthropic_rank))
+        if self.gemini_enabled:
+            providers_with_rank.append(("gemini", self.gemini_rank))
+        if self.custom_llm_enabled:
+            providers_with_rank.append(("custom", self.custom_llm_rank))
+        
+        # Sort by rank (ascending - rank 1 comes first)
+        providers_with_rank.sort(key=lambda x: x[1])
+        
+        # Return just the provider names in order
+        return [provider for provider, _ in providers_with_rank]
     
     # Ollama Configuration
     ollama_enabled: bool = Field(
         default=True,
         description="Enable Ollama as primary LLM"
+    )
+    ollama_rank: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        description="Priority rank for Ollama (1=highest priority)"
     )
     ollama_model: str = Field(
         default="llama3.1:8b",
@@ -129,6 +146,12 @@ class Settings(BaseSettings):
     openai_enabled: bool = Field(
         default=True,
         description="Enable OpenAI provider"
+    )
+    openai_rank: int = Field(
+        default=1,
+        ge=1,
+        le=10,
+        description="Priority rank for OpenAI (1=highest priority)"
     )
     openai_api_key: Optional[SecretStr] = Field(
         default=None,
@@ -161,10 +184,16 @@ class Settings(BaseSettings):
         description="Temperature for OpenAI model"
     )
     
-    # Anthropic Configuration (Placeholder)
+    # Anthropic Configuration
     anthropic_enabled: bool = Field(
         default=False,
         description="Enable Anthropic Claude provider"
+    )
+    anthropic_rank: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Priority rank for Anthropic (1=highest priority)"
     )
     anthropic_api_key: Optional[SecretStr] = Field(
         default=None,
@@ -181,10 +210,16 @@ class Settings(BaseSettings):
         description="Maximum retries for Anthropic requests"
     )
     
-    # Google Gemini Configuration (Placeholder)
+    # Google Gemini Configuration
     gemini_enabled: bool = Field(
         default=False,
         description="Enable Google Gemini provider"
+    )
+    gemini_rank: int = Field(
+        default=4,
+        ge=1,
+        le=10,
+        description="Priority rank for Gemini (1=highest priority)"
     )
     gemini_api_key: Optional[SecretStr] = Field(
         default=None,
@@ -201,10 +236,16 @@ class Settings(BaseSettings):
         description="Maximum retries for Gemini requests"
     )
     
-    # Custom LLM Configuration (Placeholder)
+    # Custom LLM Configuration
     custom_llm_enabled: bool = Field(
         default=False,
         description="Enable custom LLM provider"
+    )
+    custom_llm_rank: int = Field(
+        default=5,
+        ge=1,
+        le=10,
+        description="Priority rank for custom LLM (1=highest priority)"
     )
     custom_llm_name: str = Field(
         default="custom-provider",
@@ -216,8 +257,7 @@ class Settings(BaseSettings):
     )
     custom_llm_base_url: Optional[str] = Field(
         default=None,
-        description="Custom LLM base URL",
-        pattern=r"^https?://.*"
+        description="Custom LLM base URL"
     )
     custom_llm_model: str = Field(
         default="custom-model",
@@ -395,13 +435,6 @@ class Settings(BaseSettings):
             validated.append(ext.lower())
         return validated
     
-    @field_validator("llm_provider_order_str", mode="before")
-    @classmethod
-    def parse_provider_order(cls, v: Any) -> str:
-        """Ensure provider order is a string."""
-        if isinstance(v, list):
-            return ",".join(v)
-        return str(v) if v else "openai,ollama,anthropic"
     
     @field_validator("paperless_base_url", "ollama_base_url")
     @classmethod
@@ -457,36 +490,52 @@ class Settings(BaseSettings):
     
     @model_validator(mode="after")
     def validate_llm_config(self) -> "Settings":
-        """Ensure at least one LLM is configured and provider order is valid."""
-        # Check that at least one provider in the order is enabled and configured
+        """Ensure at least one LLM is configured and ranks are unique."""
+        # Check that at least one provider is enabled and configured
         available_providers = []
+        provider_ranks = {}
         
-        for provider in self.llm_provider_order:
-            if provider == "openai" and self.openai_enabled and self.openai_api_key:
-                available_providers.append("openai")
-            elif provider == "ollama" and self.ollama_enabled:
-                available_providers.append("ollama")
-            elif provider == "anthropic" and self.anthropic_enabled and self.anthropic_api_key:
-                available_providers.append("anthropic")
-            elif provider == "gemini" and self.gemini_enabled and self.gemini_api_key:
-                available_providers.append("gemini")
-            elif provider == "custom" and self.custom_llm_enabled and self.custom_llm_api_key:
-                available_providers.append("custom")
+        if self.openai_enabled and self.openai_api_key:
+            available_providers.append("openai")
+            provider_ranks["openai"] = self.openai_rank
+        
+        if self.ollama_enabled:
+            available_providers.append("ollama")
+            provider_ranks["ollama"] = self.ollama_rank
+        
+        if self.anthropic_enabled and self.anthropic_api_key:
+            available_providers.append("anthropic")
+            provider_ranks["anthropic"] = self.anthropic_rank
+        
+        if self.gemini_enabled and self.gemini_api_key:
+            available_providers.append("gemini")
+            provider_ranks["gemini"] = self.gemini_rank
+        
+        if self.custom_llm_enabled and self.custom_llm_api_key:
+            available_providers.append("custom")
+            provider_ranks["custom"] = self.custom_llm_rank
         
         if not available_providers:
             raise ValueError(
                 "At least one LLM provider must be properly configured. "
-                "Check that providers in LLM_PROVIDER_ORDER are enabled and have API keys."
+                "Check that providers are enabled and have API keys."
             )
         
-        # Validate provider names in order
-        valid_providers = {"openai", "ollama", "anthropic", "gemini", "custom", "openai_mini"}
-        invalid_providers = set(self.llm_provider_order) - valid_providers
-        if invalid_providers:
-            raise ValueError(
-                f"Invalid provider(s) in LLM_PROVIDER_ORDER: {invalid_providers}. "
-                f"Valid providers are: {valid_providers}"
-            )
+        # Check for duplicate ranks among enabled providers
+        ranks = list(provider_ranks.values())
+        if len(ranks) != len(set(ranks)):
+            # Find duplicates
+            duplicates = []
+            seen = set()
+            for provider, rank in provider_ranks.items():
+                if rank in seen:
+                    duplicates.append(f"{provider}(rank={rank})")
+                seen.add(rank)
+            if duplicates:
+                logger.warning(
+                    f"Duplicate ranks detected among enabled providers: {', '.join(duplicates)}. "
+                    "Consider using unique ranks for each provider."
+                )
         
         return self
     

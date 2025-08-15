@@ -300,38 +300,10 @@ class LiteLLMClient:
                 }
             }
         
-        # Build model list based on provider order
+        # Build model list based on provider order (now determined by rank)
         for i, provider in enumerate(self.settings.llm_provider_order):
-            # Handle special case for openai_mini (third fallback with gpt-5-mini)
-            if provider == "openai_mini":
-                # Create a separate configuration for gpt-5-mini
-                if self.settings.openai_enabled and self.settings.openai_api_key:
-                    model_name = f"llm-{i+1}-openai-mini"
-                    # Check if fallback model supports JSON format
-                    json_supported = ["gpt-4", "gpt-3.5-turbo"]
-                    mini_params = {
-                        "model": "gpt-4o-mini",  # Use real model name
-                        "api_key": self.settings.get_secret_value("openai_api_key"),
-                        "timeout": self.settings.openai_timeout,
-                        "max_tokens": self.settings.openai_max_tokens,
-                        "temperature": self.settings.openai_temperature,
-                        "stream": False,
-                    }
-                    
-                    if any(m in "gpt-4o-mini" for m in json_supported):
-                        mini_params["response_format"] = {"type": "json_object"}
-                    
-                    model_config = {
-                        "model_name": model_name,
-                        "litellm_params": mini_params,
-                        "model_info": {
-                            "provider": ModelProvider.OPENAI.value,
-                            "priority": i + 1
-                        }
-                    }
-                    model_list.append(model_config)
-            elif provider in provider_models:
-                model_name = f"llm-{i+1}-{provider}"
+            if provider in provider_models:
+                model_name = f"llm-rank{i+1}-{provider}"
                 model_config = {
                     "model_name": model_name,
                     **provider_models[provider]
@@ -341,8 +313,8 @@ class LiteLLMClient:
         
         if not model_list:
             raise ValueError(
-                "No LLM models configured. Check that providers in LLM_PROVIDER_ORDER "
-                "are enabled and have API keys."
+                "No LLM models configured. Check that providers "
+                "are enabled (with ENABLED=true) and have API keys configured."
             )
         
         # Build fallback chain based on order (LiteLLM expects list of single-key dicts)

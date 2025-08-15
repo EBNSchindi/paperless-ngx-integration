@@ -4,6 +4,7 @@
 
 **JA, du kannst Modelle einfach in der .env wechseln!** Hier ist wie:
 
+### 1. Modell ändern
 ```bash
 # In .env - einfach ändern:
 OPENAI_MODEL=gpt-4o-mini        # Empfohlen für Produktion
@@ -12,7 +13,21 @@ OPENAI_MODEL=gpt-4-turbo        # Beste Qualität
 OPENAI_MODEL=gpt-4o             # Neuestes Modell
 ```
 
-**Das war's! Kein Code ändern, kein Neustart nötig.**
+### 2. Priorität durch RANK steuern
+```bash
+# NEU: Reihenfolge wird NUR durch RANK gesteuert!
+OPENAI_RANK=1       # Höchste Priorität
+OLLAMA_RANK=2       # Zweite Priorität  
+ANTHROPIC_RANK=3    # Dritte Priorität
+
+# Beispiel: Ollama zuerst probieren, dann OpenAI
+OLLAMA_ENABLED=true
+OLLAMA_RANK=1       # Ollama wird zuerst versucht
+OPENAI_ENABLED=true
+OPENAI_RANK=2       # OpenAI als Fallback
+```
+
+**Das war's! Die Reihenfolge wird automatisch nach RANK sortiert.**
 
 ## 📊 Verfügbare Modelle & Features
 
