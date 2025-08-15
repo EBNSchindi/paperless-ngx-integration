@@ -12,7 +12,7 @@ import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 from ...domain.utilities.filename_utils import (
     create_unique_filename,
@@ -90,32 +90,12 @@ class AttachmentProcessor:
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.organize_by_date = organize_by_date
         self.organize_by_sender = organize_by_sender
-        self.duplicate_check = duplicate_check
+        self.duplicate_check = duplicate_check  # Keep parameter for backward compatibility but ignore it
         self.generate_metadata_files = generate_metadata_files
-        self._processed_hashes: Set[str] = set()
-        self._load_processed_hashes()
+        # Removed hash tracking - no longer tracking processed files
         self.settings = get_settings()
     
-    def _load_processed_hashes(self) -> None:
-        """Load previously processed file hashes."""
-        hash_file = self.base_dir / ".processed_hashes.json"
-        if hash_file.exists():
-            try:
-                with open(hash_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    self._processed_hashes = set(data.get("hashes", []))
-                logger.info(f"Loaded {len(self._processed_hashes)} processed file hashes")
-            except Exception as e:
-                logger.error(f"Error loading processed hashes: {e}")
-    
-    def _save_processed_hashes(self) -> None:
-        """Save processed file hashes."""
-        hash_file = self.base_dir / ".processed_hashes.json"
-        try:
-            with open(hash_file, "w", encoding="utf-8") as f:
-                json.dump({"hashes": list(self._processed_hashes)}, f, indent=2)
-        except Exception as e:
-            logger.error(f"Error saving processed hashes: {e}")
+    # Hash tracking methods removed - no longer tracking duplicates
     
     def _calculate_file_hash(self, content: bytes) -> str:
         """Calculate SHA256 hash of file content.
@@ -421,19 +401,15 @@ class AttachmentProcessor:
         
         Args:
             attachment: Email attachment to process
-            skip_duplicates: Skip if file hash already processed
+            skip_duplicates: Ignored - kept for backward compatibility
             
         Returns:
-            ProcessedAttachment or None if skipped
+            ProcessedAttachment - always processes the attachment
         """
-        # Calculate file hash
+        # Calculate file hash for metadata only, not for duplicate checking
         file_hash = self._calculate_file_hash(attachment.content)
         
-        # Check for duplicates
-        if skip_duplicates and self.duplicate_check:
-            if file_hash in self._processed_hashes:
-                logger.info(f"Skipping duplicate file: {attachment.filename}")
-                return None
+        # No duplicate checking - process all attachments
         
         # Get target directory
         target_dir = self._get_target_directory(attachment)
@@ -474,9 +450,7 @@ class AttachmentProcessor:
             processed_at=datetime.now()
         )
         
-        # Mark as processed
-        self._processed_hashes.add(file_hash)
-        self._save_processed_hashes()
+        # No longer tracking processed hashes
         
         # Save metadata only if enabled (disabled for Sevdesk optimization)
         if self.generate_metadata_files:
@@ -542,10 +516,9 @@ class AttachmentProcessor:
         """
         stats = {
             "base_directory": str(self.base_dir),
-            "total_processed_hashes": len(self._processed_hashes),
             "organize_by_date": self.organize_by_date,
             "organize_by_sender": self.organize_by_sender,
-            "duplicate_check_enabled": self.duplicate_check,
+            "duplicate_check_enabled": False,  # Always false - duplicate checking removed
         }
         
         # Count files in directory
